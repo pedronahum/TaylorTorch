@@ -1,0 +1,6 @@
+module ATenCXX [system] {
+  requires cplusplus
+  header "aten_shim.hpp"
+  header "tensor_shim.hpp"
+  export *
+}
