@@ -52,11 +52,16 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+Equatable.swift`** – `Equatable` conformance and `isClose` for tolerance-based equality checks.
 
 ## Differentiation Support
-- **`Tensor+Differentiation.swift`** – Bridges `Tensor` into Swift's `Differentiable` and `AdditiveArithmetic` ecosystems with a simple tangent definition and `move(by:)`.
-- **`Tensor+Differentiable.swift`** – Pullbacks for tensor–tensor and tensor–scalar `adding` overloads that collapse broadcasted gradients back to each operand.
-- **`Tensor+Broadcast+Differentiable.swift`** – Derivatives for `expanded`, `expanded(as:)`, and `broadcasted`, implemented via `_reduceLike` and validated by `TensorBroadcastDifferentationTests`.
-- **`Tensor+Math+Differentiable.swift`** – Reverse-mode derivatives for core unary math ops (`negated`, `abs`, `relu`, `exp`, `log`, `sqrt`) so AD aware code paths remain smooth (`TensorMathDifferentiationTests`).
-- **`Tensor+Shape+Differentiable.swift`** – Pullbacks for transpose, permute, reshape, squeeze, and unsqueeze that restore the original layout while summing along broadcast axes (`TensorShapeDifferentiableTests`).
+- **`Tensor+Differentiation.swift`** – Declares the `Differentiable` conformance, tangent zero value helpers, and `move(by:)` so tensors participate in Swift AD flows (exercised by `TensorMathDifferentiationTests`).
+- **`Tensor+Differentiable.swift`** – Pullbacks for `adding(_:alpha:)` and scalar `adding(_:)`, reducing broadcasted gradients back onto both operands (covered by `TensorOperatorsDifferentiationTests`).
+- **`Tensor+Broadcast+Differentiable.swift`** – `expanded(to:implicit:)`, `expanded(as:)`, and `broadcasted(to:)` sum gradients across broadcast axes via `_reduceLike` (checked by `TensorBroadcastDifferentationTests`).
+- **`Tensor+Indexing+Differentiable.swift`** – Integer-axis `select(dim:index:)`, `narrow(dim:start:length:)`, and `slice(dim:start:end:step:)` scatter pullbacks into the original tensor with zero-fill elsewhere (`TensorIndexingDifferentiationTests`).
+- **`Tensor+AxisSugar+Differentiable.swift`** – Axis-typed `select`, `narrow`, `slice`, `transposed`, plus multi-axis `sum(along:keepdim:)` and `mean(along:keepdim:)` reuse the integer implementations after resolving logical axes (`TensorAxisSugarDifferentiationTests`).
+- **`Tensor+Shape+Differentiable.swift`** – `transposed(_:_: )`, `permuted`, `reshaped(_:)`, `flattened(startDim:endDim:)`, `squeezed`, `squeezed(dim:)`, and `unsqueezed(dim:)` reshape gradients back to the source layout (`TensorShapeDifferentiableTests`).
+- **`Tensor+Math+Differentiable.swift`** – Unary ops (`negated`, `abs`, `relu`, `exp`, `log`, `sqrt`); tensor–tensor ops (`subtracting`, `multiplying`, `dividing`, `pow`, `matmul`, `dot`); tensor–scalar ops (`subtracting(_:)`, `multiplying(_:)`, `dividing(_:)`, `pow(_:)`); `clamp(min:max:)`; reductions (`sum`, `sum(dim:keepdim:)`, `mean`, `mean(dim:keepdim:)`); comparison predicates (`eq`, `lt`, `le`, `gt`, `ge` returning zero tangents); and `TorchWhere.select(condition:_:_:)` ternary routing (validated by `TensorMathDifferentiationTests` and `TensorOperatorsDifferentiationTests`).
+- **`Tensor+Join+Differentiable.swift`** – `Tensor.cat` partitions the upstream gradient per operand and `Tensor.stack` selects the matching slice along the stacked axis (`TensorJoinDifferentiationTests`).
+- **`Tensor+Mask+Differentiable.swift`** – Scalar and tensor overloads of `maskedFill(where:with:)` split gradients between the source tensor and replacement values while respecting broadcasting (`TensorMaskDifferentiationTests`).
+- **`Tensor+Reduce+Differentiable.swift`** – Global `min`/`max` share gradients across ties and element-wise `minimum`/`maximum` route pullbacks to each operand with broadcasting-aware scaling (`TensorReduceDifferentiationTests`).
 
 ## Async & Device Utilities
 - **`Tensor+Async.swift`** – Availability checks (`isAvailable`) and `moved(to:nonBlocking:)` async helper that hops transfers onto background queues and throws when devices are unavailable.
@@ -69,7 +74,7 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+Builders.swift`** (above) adds DSL-like builders.
 
 ## Testing & Debugging
-- **`Tests/TensorTests`** – Swift Testing suite covering factories, shape/broadcasting, indexing + differentiation, math/reductions, host interop, and operators.
+- **`Tests/TensorTests`** – Swift Testing suite spanning factories, shape/broadcasting, indexing, math/reductions, host interop, operators, and differentiation (`TensorMathDifferentiationTests`, `TensorOperatorsDifferentiationTests`, `TensorBroadcastDifferentationTests`, `TensorShapeDifferentiableTests`, `TensorIndexingDifferentiationTests`, `TensorAxisSugarDifferentiationTests`, `TensorJoinDifferentiationTests`, `TensorMaskDifferentiationTests`, `TensorReduceDifferentiationTests`).
 - **`TemporaryDebugTests.swift`** – Ad-hoc debug cases kept alongside the main suite for quick repros while features stabilize.
 
 ## Recommendations for Even More Swifty Ergonomics
