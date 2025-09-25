@@ -1,5 +1,7 @@
 import _Differentiation
 
+/// Normalises a possibly negative index into the concrete axis range, clamping to
+/// the equivalent positive offset when the caller provides negative positions.
 @usableFromInline
 @inline(__always)
 internal func _canonicalizeIndex(_ index: Int, axisSize: Int) -> Int {
@@ -8,6 +10,8 @@ internal func _canonicalizeIndex(_ index: Int, axisSize: Int) -> Int {
   return idx
 }
 
+/// Resolves slice bounds into the closed-open interval `[0, axisSize)` while
+/// supporting negative indices that wrap from the tail of the dimension.
 @usableFromInline
 @inline(__always)
 internal func _canonicalizeSliceBounds(axisSize: Int, start: Int, end: Int) -> (Int, Int) {
@@ -20,6 +24,8 @@ internal func _canonicalizeSliceBounds(axisSize: Int, start: Int, end: Int) -> (
   return (s, e)
 }
 
+/// Builds a permutation that moves the requested dimension to the end of the
+/// order while preserving the relative ordering of all other axes.
 @usableFromInline
 @inline(__always)
 internal func _moveDimToEnd(rank: Int, dim: Int) -> [Int] {
@@ -30,6 +36,8 @@ internal func _moveDimToEnd(rank: Int, dim: Int) -> [Int] {
   return order
 }
 
+/// Computes the inverse permutation for the provided axis order so gradients can
+/// be restored to their original dimensional arrangement.
 @usableFromInline
 @inline(__always)
 internal func _inversePermutation(_ perm: [Int]) -> [Int] {
@@ -41,6 +49,8 @@ internal func _inversePermutation(_ perm: [Int]) -> [Int] {
 }
 
 extension Tensor {
+  /// Reverse-mode derivative for `select(dim:index:)`, scattering incoming
+  /// gradients back into the chosen slice and zeroing untouched positions.
   @derivative(of: select(dim:index:), wrt: self)
   @inlinable
   internal func _vjpSelect<T: TorchSliceIndex & FixedWidthInteger>(
@@ -81,6 +91,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `narrow(dim:start:length:)`, padding zeros on
+  /// either side of the narrowed region when accumulating gradients.
   @derivative(of: narrow(dim:start:length:), wrt: self)
   @inlinable
   internal func _vjpNarrow<T: TorchSliceIndex & FixedWidthInteger>(
@@ -125,6 +137,9 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for strided `slice(dim:start:end:step:)`,
+  /// scattering the upstream gradient along the sampled indices while leaving
+  /// all other positions zero-initialised.
   @derivative(of: slice(dim:start:end:step:), wrt: self)
   @inlinable
   internal func _vjpSlice(

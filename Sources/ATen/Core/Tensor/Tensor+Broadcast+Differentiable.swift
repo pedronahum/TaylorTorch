@@ -1,6 +1,9 @@
 import _Differentiation
 
 extension Tensor {
+  /// Reverse-mode derivative for `expanded(to:implicit:)`, summing over the
+  /// dimensions that were broadcast when collapsing the gradient back to the
+  /// source tensor.
   @derivative(of: expanded(to:implicit:), wrt: self)
   @inlinable
   internal func _vjpExpanded(to shape: [Int], implicit: Bool) -> (
@@ -13,6 +16,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `expanded(as:)`, reusing `_reduceLike` to fold
+  /// gradients across axes introduced by the expansion.
   @derivative(of: expanded(as:), wrt: self)
   @inlinable
   internal func _vjpExpanded(as other: Tensor) -> (
@@ -25,6 +30,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `broadcasted(to:)`, summing along broadcasted
+  /// axes so the returned gradient matches the source tensor's shape.
   @derivative(of: broadcasted(to:), wrt: self)
   @inlinable
   internal func _vjpBroadcasted(to shape: [Int]) -> (
@@ -37,4 +44,3 @@ extension Tensor {
     )
   }
 }
-

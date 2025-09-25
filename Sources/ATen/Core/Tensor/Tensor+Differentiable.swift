@@ -1,5 +1,7 @@
 import _Differentiation
 
+/// Projects a heterogeneous `Scalar` value into a `Double` so broadcasted
+/// gradients can be scaled using native arithmetic regardless of the payload.
 @usableFromInline
 internal func _scalarToDouble(_ scalar: Scalar) -> Double {
   switch scalar {
@@ -14,6 +16,9 @@ internal func _scalarToDouble(_ scalar: Scalar) -> Double {
 }
 
 extension Tensor {
+  /// Reverse-mode derivative for the full `adding(_:alpha:)` overload, reducing
+  /// broadcasted gradients to match each operand before returning the pair of
+  /// tangents.
   @derivative(of: adding(_:alpha:))
   @inlinable
   internal func _vjpAdding(_ other: Tensor, alpha: Scalar) -> (
@@ -31,6 +36,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for tensor-scalar `adding`, ensuring the gradient
+  /// collapses along broadcast dimensions while leaving the scalar untouched.
   @derivative(of: adding(_:), wrt: self)
   @inlinable
   internal func _vjpAddingScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -40,4 +47,3 @@ extension Tensor {
     return (result, { v in _reduceLike(v, targetShape: self.shape) })
   }
 }
-

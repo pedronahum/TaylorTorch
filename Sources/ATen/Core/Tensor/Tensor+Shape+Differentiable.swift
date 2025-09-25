@@ -1,10 +1,14 @@
 import _Differentiation
 
 extension Tensor {
+  /// Convenience flatten that collapses every axis, delegating to the more
+  /// general `flattened(startDim:endDim:)` implementation.
   @inlinable
   public func flattened() -> Tensor {
     return self.flattened(startDim: 0, endDim: self.rank - 1)
   }
+  /// Reverse-mode derivative for `transposed`, applying the same swap in the
+  /// pullback to restore gradients to the original orientation.
   @derivative(of: transposed(_:_:), wrt: self)
   @inlinable
   internal func _vjpTransposed(_ dim0: Int, _ dim1: Int) -> (
@@ -17,6 +21,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `permuted`, computing the inverse permutation
+  /// so gradients reflow to their original axes.
   @derivative(of: permuted(_:), wrt: self)
   @inlinable
   internal func _vjpPermuted(_ order: [Int]) -> (
@@ -41,6 +47,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `reshaped`, returning the upstream gradient
+  /// reshaped back to the tensor's original shape.
   @derivative(of: reshaped(_:), wrt: self)
   @inlinable
   internal func _vjpReshaped(_ shape: [Int]) -> (
@@ -54,6 +62,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for ranged `flattened`, reshaping the gradient back
+  /// to the source tensor's shape.
   @derivative(of: flattened(startDim:endDim:), wrt: self)
   @inlinable
   internal func _vjpFlattened(startDim: Int, endDim: Int) -> (
@@ -82,6 +92,8 @@ extension Tensor {
   }
   */
 
+  /// Reverse-mode derivative for parameterless `squeezed`, reintroducing
+  /// singleton axes before returning the gradient.
   @derivative(of: squeezed, wrt: self)
   @inlinable
   internal func _vjpSqueezed() -> (
@@ -101,6 +113,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `squeezed(dim:)`, simply unsqueezing the
+  /// upstream gradient along the resolved axis.
   @derivative(of: squeezed(dim:), wrt: self)
   @inlinable
   internal func _vjpSqueezed(dim: Int) -> (
@@ -116,6 +130,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `unsqueezed(dim:)`, squeezing the gradient back
+  /// along the introduced singleton axis.
   @derivative(of: unsqueezed(dim:), wrt: self)
   @inlinable
   internal func _vjpUnsqueezed(dim: Int) -> (

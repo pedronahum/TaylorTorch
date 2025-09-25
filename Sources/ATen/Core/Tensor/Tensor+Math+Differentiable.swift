@@ -1,17 +1,23 @@
 import _Differentiation
 
+/// Materialises an all-zero tensor matching the provided tensor's shape,
+/// defaulting to the same dtype/device unless explicitly overridden.
 @inlinable
 internal func _zerosLike(_ tensor: Tensor, dtype: DType? = nil) -> Tensor {
   let resolvedDType = dtype ?? tensor.dtype ?? .float32
   return Tensor.zeros(shape: tensor.shape, dtype: resolvedDType, device: tensor.device)
 }
 
+/// Materialises an all-one tensor matching the provided tensor's shape,
+/// defaulting to the same dtype/device unless explicitly overridden.
 @inlinable
 internal func _onesLike(_ tensor: Tensor, dtype: DType? = nil) -> Tensor {
   let resolvedDType = dtype ?? tensor.dtype ?? .float32
   return Tensor.ones(shape: tensor.shape, dtype: resolvedDType, device: tensor.device)
 }
 
+/// Normalises a dimension index, supporting negative offsets and validating that
+/// the resulting value falls within `[0, rank)`.
 @inlinable
 internal func _normalizeDimension(_ dim: Int, rank: Int) -> Int {
   let normalized = dim >= 0 ? dim : dim + rank
@@ -20,6 +26,8 @@ internal func _normalizeDimension(_ dim: Int, rank: Int) -> Int {
   return normalized
 }
 
+/// Reduces a gradient tensor so its shape matches `targetShape`, summing across
+/// extra or broadcasted axes when necessary.
 @inlinable
 internal func _reduceLike(_ gradient: Tensor, targetShape: [Int]) -> Tensor {
   if gradient.shape == targetShape { return gradient }
@@ -56,6 +64,8 @@ internal func _reduceLike(_ gradient: Tensor, targetShape: [Int]) -> Tensor {
 
 // Wrap all derivative functions in an extension of Tensor
 extension Tensor {
+  /// Reverse-mode derivative for `negated`, flipping the sign of the upstream
+  /// gradient to reflect the unary negation.
   @derivative(of: negated)
   @inlinable
   internal func _vjpNegated() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -63,6 +73,8 @@ extension Tensor {
     return (self.negated(), { v in v.negated() })
   }
 
+  /// Reverse-mode derivative for `abs`, propagating the upstream gradient
+  /// multiplied by the sign of the original input.
   @derivative(of: abs)
   @inlinable
   internal func _vjpAbs() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -76,6 +88,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `relu`, masking out negative inputs while
+  /// forwarding positive gradients unchanged.
   @derivative(of: relu)
   @inlinable
   internal func _vjpRelu() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -89,6 +103,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `exp`, scaling the gradient by the forward
+  /// activation to mirror the analytic derivative.
   @derivative(of: exp)
   @inlinable
   internal func _vjpExp() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -101,6 +117,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `log`, dividing the upstream gradient by the
+  /// original input.
   @derivative(of: log)
   @inlinable
   internal func _vjpLog() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -112,6 +130,7 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `sqrt`, scaling the gradient by `1 / (2 * sqrt(x))`.
   @derivative(of: sqrt)
   @inlinable
   internal func _vjpSqrt() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -128,6 +147,8 @@ extension Tensor {
 // MARK: - Binary (tensor ⊗ tensor) Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for tensor–tensor `subtracting`, passing the
+  /// upstream gradient to the minuend and its negation to the subtrahend.
   @derivative(of: subtracting)
   @inlinable
   internal func _vjpSubtracting(_ other: Tensor, alpha: Scalar = .int64(1)) -> (
@@ -142,6 +163,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for tensor–tensor `multiplying`, weighting each
+  /// gradient by the opposite operand per the product rule.
   @derivative(of: multiplying)
   @inlinable
   internal func _vjpMultiplying(_ other: Tensor) -> (
@@ -155,6 +178,8 @@ extension Tensor {
       }
     )
   }
+  /// Reverse-mode derivative for tensor–tensor `dividing`, applying quotient
+  /// rule semantics while broadcasting to the shape of each operand.
   @derivative(of: dividing)
   @inlinable
   internal func _vjpDividing(_ other: Tensor) -> (
@@ -173,6 +198,8 @@ extension Tensor {
 // MARK: - Binary (tensor ⊗ scalar) Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for tensor–scalar `subtracting`, returning the
+  /// upstream gradient unchanged for the tensor operand.
   @derivative(of: subtracting(_:), wrt: self)
   @inlinable
   internal func _vjpSubtractingScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -182,6 +209,8 @@ extension Tensor {
     return (result, { v in v })
   }
 
+  /// Reverse-mode derivative for tensor–scalar `multiplying`, scaling the
+  /// gradient by the scalar factor.
   @derivative(of: multiplying(_:), wrt: self)
   @inlinable
   internal func _vjpMultiplyingScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -191,6 +220,8 @@ extension Tensor {
     return (result, { v in v.multiplying(scalar) })
   }
 
+  /// Reverse-mode derivative for tensor–scalar `dividing`, dividing the
+  /// gradient by the scalar factor.
   @derivative(of: dividing(_:), wrt: self)
   @inlinable
   internal func _vjpDividingScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -204,6 +235,8 @@ extension Tensor {
 // MARK: - Power Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for tensor–scalar `pow`, returning `power * x^(power-1)`
+  /// scaled by the upstream gradient (with zero when `power == 0`).
   @derivative(of: pow(_:), wrt: self)
   @inlinable
   internal func _vjpPowScalar<T: TorchArithmetic>(_ power: T) -> (
@@ -222,6 +255,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for tensor–tensor `pow`, applying the chain rule
+  /// to both base and exponent while reducing broadcasted gradients.
   @derivative(of: pow(_:))
   @inlinable
   internal func _vjpPowTensor(_ other: Tensor) -> (
@@ -244,6 +279,8 @@ extension Tensor {
 // MARK: - Clamp Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for `clamp(min:max:)`, masking gradients to zero
+  /// where the input is saturated at the bounds.
   @derivative(of: clamp(min:max:), wrt: self)
   @inlinable
   internal func _vjpClamp<T: TorchArithmetic>(min: T, max: T) -> (
@@ -266,6 +303,8 @@ extension Tensor {
 // MARK: - Reductions Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for scalar `sum`, broadcasting the upstream value
+  /// across all elements of the input tensor.
   @derivative(of: sum)
   @inlinable
   internal func _vjpSum() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -279,6 +318,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for dimensional `sum`, expanding (and unsqueezing
+  /// when needed) the upstream gradient to match the input tensor's shape.
   @derivative(of: sum(dim:keepdim:), wrt: self)
   @inlinable
   internal func _vjpSum(dim: Int, keepdim: Bool) -> (
@@ -296,6 +337,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for scalar `mean`, distributing the gradient evenly
+  /// across every element of the input tensor.
   @derivative(of: mean)
   @inlinable
   internal func _vjpMean() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
@@ -310,6 +353,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for dimensional `mean`, expanding the upstream
+  /// gradient and dividing by the number of elements reduced along the axis.
   @derivative(of: mean(dim:keepdim:), wrt: self)
   @inlinable
   internal func _vjpMean(dim: Int, keepdim: Bool) -> (
@@ -332,6 +377,8 @@ extension Tensor {
 // MARK: - Linalg Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for `matmul`, handling vector/matrix combinations
+  /// and reducing broadcasted gradients back to each operand's shape.
   @derivative(of: matmul)
   @inlinable
   internal func _vjpMatmul(_ other: Tensor) -> (
@@ -388,6 +435,8 @@ extension Tensor {
     )
   }
 
+  /// Reverse-mode derivative for `dot`, distributing the upstream scalar along
+  /// each operand scaled by the other vector.
   @derivative(of: dot)
   @inlinable
   internal func _vjpDot(_ other: Tensor) -> (
@@ -408,6 +457,8 @@ extension Tensor {
 // MARK: - Comparisons (tensor ⊗ tensor) Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for element-wise equality, which is zero-valued
+  /// because the operation is non-differentiable.
   @derivative(of: eq)
   @inlinable
   internal func _vjpEq(_ other: Tensor) -> (
@@ -417,6 +468,8 @@ extension Tensor {
     return (result, { _ in (_zerosLike(self), _zerosLike(other)) })
   }
 
+  /// Reverse-mode derivative for element-wise less-than, returning zeros since
+  /// the comparison is non-differentiable.
   @derivative(of: lt)
   @inlinable
   internal func _vjpLt(_ other: Tensor) -> (
@@ -426,6 +479,8 @@ extension Tensor {
     return (result, { _ in (_zerosLike(self), _zerosLike(other)) })
   }
 
+  /// Reverse-mode derivative for element-wise less-than-or-equal, returning
+  /// zeros because the comparison is non-differentiable.
   @derivative(of: le)
   @inlinable
   internal func _vjpLe(_ other: Tensor) -> (
@@ -435,6 +490,8 @@ extension Tensor {
     return (result, { _ in (_zerosLike(self), _zerosLike(other)) })
   }
 
+  /// Reverse-mode derivative for element-wise greater-than, returning zeros
+  /// since comparison results carry no gradient.
   @derivative(of: gt)
   @inlinable
   internal func _vjpGt(_ other: Tensor) -> (
@@ -444,6 +501,8 @@ extension Tensor {
     return (result, { _ in (_zerosLike(self), _zerosLike(other)) })
   }
 
+  /// Reverse-mode derivative for element-wise greater-than-or-equal, returning
+  /// zeros because the comparison is non-differentiable.
   @derivative(of: ge)
   @inlinable
   internal func _vjpGe(_ other: Tensor) -> (
@@ -457,6 +516,8 @@ extension Tensor {
 // MARK: - Comparisons (tensor ⊗ scalar) Differentiation
 extension Tensor {
 
+  /// Reverse-mode derivative for tensor–scalar equality, returning zeros since
+  /// the predicate carries no gradient.
   @derivative(of: eq(_:), wrt: self)
   @inlinable
   internal func _vjpEqScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -466,6 +527,7 @@ extension Tensor {
     return (result, { _ in _zerosLike(self) })
   }
 
+  /// Reverse-mode derivative for tensor–scalar less-than, returning zeros.
   @derivative(of: lt(_:), wrt: self)
   @inlinable
   internal func _vjpLtScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -475,6 +537,8 @@ extension Tensor {
     return (result, { _ in _zerosLike(self) })
   }
 
+  /// Reverse-mode derivative for tensor–scalar less-than-or-equal, returning
+  /// zeros.
   @derivative(of: le(_:), wrt: self)
   @inlinable
   internal func _vjpLeScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -484,6 +548,7 @@ extension Tensor {
     return (result, { _ in _zerosLike(self) })
   }
 
+  /// Reverse-mode derivative for tensor–scalar greater-than, returning zeros.
   @derivative(of: gt(_:), wrt: self)
   @inlinable
   internal func _vjpGtScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -493,6 +558,8 @@ extension Tensor {
     return (result, { _ in _zerosLike(self) })
   }
 
+  /// Reverse-mode derivative for tensor–scalar greater-than-or-equal, returning
+  /// zeros.
   @derivative(of: ge(_:), wrt: self)
   @inlinable
   internal func _vjpGeScalar<T: TorchArithmetic>(_ scalar: T) -> (
@@ -506,6 +573,8 @@ extension Tensor {
 // MARK: - Where (ternary) Differentiation
 extension TorchWhere {
 
+  /// Reverse-mode derivative for `TorchWhere.select`, routing gradients through
+  /// either branch based on the boolean condition while respecting broadcasting.
   @derivative(of: select(condition:_:_:), wrt: (a, b))
   @inlinable
   internal static func _vjpSelect(

@@ -41,6 +41,7 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+AdvancedIndexing.swift`** – Host-side `indexSelect` and 2-D sugar subscripts.
 - **`Tensor+MultiAxisSubscript.swift`** – `TensorIndex` enum and variadic subscript supporting integers, ranges, ellipsis, and new axes for NumPy-style slicing.
 - **`Tensor+Join.swift`** – Concatenate (`cat`) and stack (`stack`) utilities.
+- **`Tensor+Indexing+Differentiable.swift`** – Reverse-mode derivatives for `select`, `narrow`, and `slice`, ensuring gradients scatter back into the source tensor (`TensorIndexingDifferentiationTests`).
 
 ## Math, Logic, and Operators
 - **`Tensor+Math.swift`** – Unary transforms, tensor/scalar binary ops, reductions (`sum`, `mean`, etc.), linear algebra (`matmul`, `dot`), and comparison helpers.
@@ -52,7 +53,10 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 
 ## Differentiation Support
 - **`Tensor+Differentiation.swift`** – Bridges `Tensor` into Swift's `Differentiable` and `AdditiveArithmetic` ecosystems with a simple tangent definition and `move(by:)`.
-- **`Tensor+Math+Differentiable.swift`** – Registers reverse-mode derivatives for core unary math ops (`negated`, `abs`, `relu`, `exp`, `log`, `sqrt`) so AD aware code paths remain smooth.
+- **`Tensor+Differentiable.swift`** – Pullbacks for tensor–tensor and tensor–scalar `adding` overloads that collapse broadcasted gradients back to each operand.
+- **`Tensor+Broadcast+Differentiable.swift`** – Derivatives for `expanded`, `expanded(as:)`, and `broadcasted`, implemented via `_reduceLike` and validated by `TensorBroadcastDifferentationTests`.
+- **`Tensor+Math+Differentiable.swift`** – Reverse-mode derivatives for core unary math ops (`negated`, `abs`, `relu`, `exp`, `log`, `sqrt`) so AD aware code paths remain smooth (`TensorMathDifferentiationTests`).
+- **`Tensor+Shape+Differentiable.swift`** – Pullbacks for transpose, permute, reshape, squeeze, and unsqueeze that restore the original layout while summing along broadcast axes (`TensorShapeDifferentiableTests`).
 
 ## Async & Device Utilities
 - **`Tensor+Async.swift`** – Availability checks (`isAvailable`) and `moved(to:nonBlocking:)` async helper that hops transfers onto background queues and throws when devices are unavailable.
@@ -65,7 +69,7 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+Builders.swift`** (above) adds DSL-like builders.
 
 ## Testing & Debugging
-- **`Tests/TensorTests`** – Swift Testing suite covering factories, shape/broadcasting, indexing, math/reductions, host interop, and operators.
+- **`Tests/TensorTests`** – Swift Testing suite covering factories, shape/broadcasting, indexing + differentiation, math/reductions, host interop, and operators.
 - **`TemporaryDebugTests.swift`** – Ad-hoc debug cases kept alongside the main suite for quick repros while features stabilize.
 
 ## Recommendations for Even More Swifty Ergonomics
