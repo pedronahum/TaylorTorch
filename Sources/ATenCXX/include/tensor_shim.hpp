@@ -337,6 +337,53 @@ public:
     return TTSTensor(t_.index_select(d, i));
   }
 
+  // Places values from the 'values' tensor into self at locations specified
+  // by 'indices'.
+  TTSTensor indexPut(const TTSTensor *indices, size_t num_indices,
+                     const TTSTensor &values, bool accumulate = false) const
+  {
+    // 1. Build a vector of the required type: std::optional<at::Tensor>
+    std::vector<std::optional<at::Tensor>> optional_indices;
+    optional_indices.reserve(num_indices);
+    for (size_t i = 0; i < num_indices; ++i)
+    {
+      if (indices[i].defined())
+      {
+        // If the tensor is defined, add it to the list.
+        optional_indices.push_back(indices[i].t_);
+      }
+      else
+      {
+        // If it's undefined (for slicing like [:]), add a nullopt.
+        optional_indices.push_back(c10::nullopt);
+      }
+    }
+
+    // 2. Convert the std::vector into the c10::List that the function expects.
+    c10::List<std::optional<at::Tensor>> index_list(optional_indices);
+
+    // 3. Clone self to maintain out-of-place semantics
+    at::Tensor result = t_.clone();
+
+    // 4. Call the in-place ATen function with the correctly typed list
+    result.index_put_(index_list, values.t_, accumulate);
+
+    // 5. Return the new tensor
+    return TTSTensor(result);
+  }
+
+  TTSTensor indexAdd(int64_t dim, const TTSTensor &index, const TTSTensor &source, c10::Scalar alpha) const
+  {
+    auto d = _canon_dim(t_, dim);
+    return TTSTensor(at::index_add(t_, d, index.t_, source.t_, alpha));
+  }
+
+  TTSTensor indexCopy(int64_t dim, const TTSTensor &index, const TTSTensor &source) const
+  {
+    auto d = _canon_dim(t_, dim);
+    return TTSTensor(at::index_copy(t_, d, index.t_, source.t_));
+  }
+
   // ---- Layout & contiguity
   bool isContiguous() const { return t_.is_contiguous(); }
   int64_t strideAt(int64_t d) const { return t_.stride(d); }
