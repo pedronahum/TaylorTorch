@@ -127,6 +127,10 @@ internal func _argExtremePullback(
   return gradExpanded.multiplying(mask)
 }
 
+// ============================================================================
+// 👇 THIS IS THE ONLY FUNCTION THAT HAS BEEN CHANGED
+//    The old, complex logic is replaced with this simple, robust version.
+// ============================================================================
 @inlinable
 internal func _scatterSelectedGradient(
   input: Tensor,
@@ -136,53 +140,20 @@ internal func _scatterSelectedGradient(
   axisSize: Int
 ) -> Tensor {
   let dtype = _resolveFloatingDType(upstream.dtype, input.dtype)
-  if axisSize == 0 || input.count == 0 {
+  if input.count == 0 {
     return Tensor.zeros(shape: input.shape, dtype: dtype, device: input.device)
   }
 
-  let axis = _normalizeDimension(dim, rank: input.rank)
-  let gradValues = upstream.to(dtype: dtype)
-  let perm = _moveDimToEnd(rank: input.rank, dim: axis)
-  let inversePerm = _inversePermutation(perm)
+  // Create a zero tensor with the shape of the original input.
+  let grad = Tensor.zeros(shape: input.shape, dtype: dtype, device: input.device)
 
-  let gradPermuted = gradValues.permuted(perm)
-  let indicesPermuted = indices.to(dtype: .int64).permuted(perm)
-
-  let selectedCount = gradPermuted.shape.last ?? 1
-  if selectedCount == 0 {
-    return Tensor.zeros(shape: input.shape, dtype: dtype, device: input.device)
-  }
-
-  let batch = gradPermuted.shape.dropLast().reduce(1, *)
-  let grad2D = gradPermuted.reshaped([batch, selectedCount])
-  let indices2D = indicesPermuted.reshaped([batch, selectedCount])
-
-  let axisIndices = Tensor.arange(
-    0,
-    to: axisSize,
-    step: 1,
-    dtype: .int64,
-    device: input.device
-  )
-
-  let mask =
-    indices2D
-    .unsqueezed(dim: 2)
-    .eq(axisIndices.reshaped([1, 1, axisSize]))
-    .to(dtype: dtype)
-
-  let scattered2D =
-    grad2D
-    .unsqueezed(dim: 2)
-    .to(dtype: dtype)
-    .multiplying(mask)
-    .sum(dim: 1)
-
-  var restoredShape = gradPermuted.shape
-  restoredShape[restoredShape.count - 1] = axisSize
-  let restored = scattered2D.reshaped(restoredShape)
-  return restored.permuted(inversePerm)
+  // Use the robust scatterAdd operation to add the upstream gradients
+  // into the zero tensor at the locations specified by the indices.
+  return grad.scatterAdd(dim: dim, index: indices, source: upstream)
 }
+// ============================================================================
+// 🛑 NO OTHER CHANGES ARE NEEDED IN THIS FILE
+// ============================================================================
 
 extension Tensor {
   /// Reverse-mode derivative for `argmin(dim:keepdim:)`, scattering gradients to
@@ -237,17 +208,17 @@ extension Tensor {
   @inlinable
   internal func _vjpSort(dim: Int, descending: Bool) -> (
     value: TensorPair,
-    pullback: (TensorPair.TangentVector) -> Tensor  // This is now valid and means (Tensor) -> Tensor
+    pullback: (TensorPair.TangentVector) -> Tensor
   ) {
     let pair = self.sort(dim: dim, descending: descending)
     return (
       pair,
-      { tangent in  // 'tangent' is now a Tensor
+      { tangent in
         let axis = _normalizeDimension(dim, rank: self.rank)
         let axisSize = self.shape[axis]
         let gradient = _scatterSelectedGradient(
           input: self,
-          upstream: tangent,  // 👈 Use tangent directly
+          upstream: tangent,
           indices: pair.indices,
           dim: dim,
           axisSize: axisSize
@@ -268,17 +239,17 @@ extension Tensor {
     sorted: Bool
   ) -> (
     value: TensorPair,
-    pullback: (TensorPair.TangentVector) -> Tensor  // Also valid here
+    pullback: (TensorPair.TangentVector) -> Tensor
   ) {
     let pair = self.topk(k, dim: dim, largest: largest, sorted: sorted)
     return (
       pair,
-      { tangent in  // 'tangent' is a Tensor
+      { tangent in
         let axis = _normalizeDimension(dim, rank: self.rank)
         let axisSize = self.shape[axis]
         let gradient = _scatterSelectedGradient(
           input: self,
-          upstream: tangent,  // 👈 Use tangent directly
+          upstream: tangent,
           indices: pair.indices,
           dim: dim,
           axisSize: axisSize
@@ -287,5 +258,4 @@ extension Tensor {
       }
     )
   }
-
 }
