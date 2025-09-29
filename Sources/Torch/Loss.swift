@@ -12,23 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// This file has been adapted from the original at
+// https://github.com/tensorflow/swift-apis/blob/main/Sources/TensorFlow/Loss.swift
+// to reflect the ATen-based implementation of Tensor in Swift.
+
 import _Differentiation
-
-// MARK: - Reduction Functions
-
-/*
-/// A differentiable version of the sum reduction, for use as a default parameter.
-@differentiable(reverse)
-public func sum(_ tensor: Tensor) -> Tensor {
-  return tensor.sum()
-}
-
-/// A differentiable version of the mean reduction, for use as a default parameter.
-@differentiable(reverse)
-public func mean(_ tensor: Tensor) -> Tensor {
-  return tensor.mean()
-}
-*/
 
 // MARK: - Basic Loss Functions
 

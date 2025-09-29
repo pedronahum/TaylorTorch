@@ -1,4 +1,3 @@
-
 import _Differentiation
 
 extension ParameterIterableModel {
@@ -64,12 +63,19 @@ extension ParameterIterableModel {
   }
 
   /// L2 global norm of a tangent: sqrt(Σ_i ||gi||^2).
-  @inlinable public static func globalNorm(of g: TangentVector) -> Tensor {
-    var sqSum = Tensor(0.0)  // scalar; broadcasts correctly in your ops. :contentReference[oaicite:8]{index=8}
-    for kp in TangentVector.parameterKeyPaths {
+  @inlinable
+  public static func globalNorm(of g: TangentVector) -> Tensor {
+    let paths = TangentVector.parameterKeyPaths
+    guard let first = paths.first else {
+      // No parameters: define the norm as 0 on CPU float32 (or adjust to your preference).
+      return Tensor(0.0)
+    }
+    var sqSum = g[keyPath: first].multiplying(g[keyPath: first]).sum()
+    for kp in paths.dropFirst() {
       let t = g[keyPath: kp]
-      sqSum = sqSum.adding(t.multiplying(t).sum())  // reductions are part of your core & tested. :contentReference[oaicite:9]{index=9}
+      sqSum = sqSum.adding(t.multiplying(t).sum())
     }
     return sqSum.sqrt()
   }
+
 }

@@ -1,4 +1,3 @@
-
 import Foundation
 import _Differentiation
 
@@ -41,12 +40,11 @@ public struct SGD<Model: ParameterIterableModel>: Optimizer {
 
     // Optional: global-norm clipping (uses your reductions & sqrt). :contentReference[oaicite:10]{index=10}
     if let clip = clipGlobalNorm {
-      let norm = Model.globalNorm(of: g)
-      // factor = min(1, clip / max(norm, tiny))
-      let tiny = Tensor(1e-12)
-      let denom = norm.maximum(tiny)
-      let factor = Tensor(clip).dividing(denom)
-      let capped = Tensor(1.0).minimum(factor)  // min(1, clip/norm)
+      let norm = Model.globalNorm(of: g)  // norm already on the right device/dtype
+      let tiny = Tensor(1e-12).to(dtype: norm.dtype!).to(device: norm.device)
+      let clipT = Tensor(clip).to(dtype: norm.dtype!).to(device: norm.device)
+      let factor = clipT.dividing(norm.maximum(tiny))  // clip / max(norm, tiny)
+      let capped = Tensor(1.0).to(dtype: factor.dtype!).to(device: factor.device).minimum(factor)
       g = Model.map(g) { $0.multiplying(capped) }
     }
 
@@ -114,11 +112,15 @@ public struct AdamW<Model: ParameterIterableModel>: Optimizer {
     // Clip (optional)
     if let clip = clipGlobalNorm {
       let norm = Model.globalNorm(of: g)
-      let tiny = Tensor(1e-12)
-      let factor = Tensor(clip).dividing(norm.maximum(tiny))
-      let capped = Tensor(1.0).minimum(factor)
+      let tiny = Tensor(1e-12).to(dtype: norm.dtype!).to(device: norm.device)
+      let clipT = Tensor(clip).to(dtype: norm.dtype!).to(device: norm.device)
+      let factor = clipT.dividing(norm.maximum(tiny))
+      let capped = Tensor(1.0).to(dtype: factor.dtype!).to(device: factor.device).minimum(factor)
       g = Model.map(g) { $0.multiplying(capped) }
     }
+
+    // Bias correction is already using Foundation.pow (good).
+    // The rest of your AdamW is solid.
 
     // Moments
     step &+= 1

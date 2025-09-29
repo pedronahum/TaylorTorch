@@ -11,3 +11,4 @@ DerivedData/
 .idea/
 .clj-kondo/
 .build/
+.cache/
