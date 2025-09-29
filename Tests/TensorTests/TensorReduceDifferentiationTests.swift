@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 @Test("Differentiation: min reduction splits pullback across ties")
 func minReductionPullbackSplitsTies() throws {
@@ -140,10 +140,9 @@ func sortPullbackRestoresOrder() throws {
   #expect(pair.values.isClose(to: expectedValues, rtol: 1e-6, atol: 1e-6, equalNan: false))
   #expect(pair.indices == expectedIndices)
 
-  // --- FIX START ---
-  // The TangentVector is just a Tensor, so create it directly.
-  let upstream = Tensor(array: [0.1, 0.2, 0.3, -0.5, 0.4, 0.0], shape: [2, 3])
-  // --- FIX END ---
+  let upstreamTensor = Tensor(array: [0.1, 0.2, 0.3, -0.5, 0.4, 0.0], shape: [2, 3])
+  // Wrap the tensor in the correct TangentVector type.
+  let upstream = TensorPair.TangentVector(values: upstreamTensor)
 
   let grad = pullback(upstream)
   let expectedGrad = Tensor(
@@ -166,10 +165,9 @@ func topkPullbackScattersSelections() throws {
   #expect(pair.values.isClose(to: expectedValues, rtol: 1e-6, atol: 1e-6, equalNan: false))
   #expect(pair.indices == expectedIndices)
 
-  // --- FIX START ---
-  // The TangentVector is just a Tensor, so create it directly.
-  let upstream = Tensor(array: [1.0, -0.5, 0.25, -1.25], shape: [2, 2])
-  // --- FIX END ---
+  let upstreamTensor = Tensor(array: [1.0, -0.5, 0.25, -1.25], shape: [2, 2])
+  // Wrap the tensor in the correct TangentVector type.
+  let upstream = TensorPair.TangentVector(values: upstreamTensor)
 
   let grad = pullback(upstream)
   let expectedGrad = Tensor(

@@ -1,5 +1,6 @@
 import Testing
-@testable import ATen
+
+@testable import Torch
 
 private func makeSequentialTensor(count: Int) -> Tensor {
   Tensor.arange(Int64(0), to: Int64(count), step: Int64(1))

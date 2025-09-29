@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 private func onesLike(_ tensor: Tensor) -> Tensor {
   Tensor.ones(shape: tensor.shape, dtype: tensor.dtype!)
@@ -197,7 +197,8 @@ func powTensorGradientMatchesAnalytic() throws {
 func clampGradientMasksClampedValues() throws {
   let input = Tensor(array: [-1.0, 0.5, 2.0], shape: [3])
   let (value, pullback) = valueWithPullback(at: input) { $0.clamp(min: 0.0, max: 1.0) }
-  #expect(value.isClose(to: input.clamp(min: 0.0, max: 1.0), rtol: 1e-6, atol: 1e-6, equalNan: false))
+  #expect(
+    value.isClose(to: input.clamp(min: 0.0, max: 1.0), rtol: 1e-6, atol: 1e-6, equalNan: false))
 
   let upstream = Tensor(array: [1.0, 2.0, -3.0], shape: [3])
   let grad = pullback(upstream)
@@ -221,7 +222,8 @@ func sumGradientBroadcastsUpstream() throws {
 func sumDimGradientExpandsUpstream() throws {
   let input = Tensor(array: [1.0, 2.0, 3.0, 4.0], shape: [2, 2])
   let (value, pullback) = valueWithPullback(at: input) { $0.sum(dim: 1, keepdim: false) }
-  #expect(value.isClose(to: input.sum(dim: 1, keepdim: false), rtol: 1e-6, atol: 1e-6, equalNan: false))
+  #expect(
+    value.isClose(to: input.sum(dim: 1, keepdim: false), rtol: 1e-6, atol: 1e-6, equalNan: false))
 
   let upstream = Tensor(array: [1.0, -2.0], shape: [2])
   let grad = pullback(upstream)
@@ -245,7 +247,8 @@ func meanGradientDistributesUpstream() throws {
 func meanDimGradientExpandsUpstream() throws {
   let input = Tensor(array: [1.0, 2.0, 3.0, 4.0], shape: [2, 2])
   let (value, pullback) = valueWithPullback(at: input) { $0.mean(dim: 1, keepdim: true) }
-  #expect(value.isClose(to: input.mean(dim: 1, keepdim: true), rtol: 1e-6, atol: 1e-6, equalNan: false))
+  #expect(
+    value.isClose(to: input.mean(dim: 1, keepdim: true), rtol: 1e-6, atol: 1e-6, equalNan: false))
 
   let upstream = Tensor(array: [2.0, -1.0], shape: [2, 1])
   let grad = pullback(upstream)
@@ -385,7 +388,9 @@ func whereGradientRespectsMask() throws {
   let (value, pullback) = valueWithPullback(at: a, b) { a, b in
     TorchWhere.select(condition: condition, a, b)
   }
-  #expect(value.isClose(to: TorchWhere.select(condition: condition, a, b), rtol: 1e-6, atol: 1e-6, equalNan: false))
+  #expect(
+    value.isClose(
+      to: TorchWhere.select(condition: condition, a, b), rtol: 1e-6, atol: 1e-6, equalNan: false))
 
   let upstream = Tensor(array: [0.5, -1.0, 2.0], shape: [3])
   let (gradA, gradB) = pullback(upstream)

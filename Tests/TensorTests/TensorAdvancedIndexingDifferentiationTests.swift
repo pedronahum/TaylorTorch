@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 @Test("Differentiation: indexSelect pullback scatters along dim 0")
 func indexSelectPullbackScattersAlongDimZero() throws {

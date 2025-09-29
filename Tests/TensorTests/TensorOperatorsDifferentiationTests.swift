@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 private func onesLike(_ tensor: Tensor) -> Tensor {
   Tensor.ones(shape: tensor.shape, dtype: tensor.dtype!)
@@ -147,7 +147,8 @@ func scalarTensorScalingGradientMatchesAnalytic() throws {
 
   do {
     let (value, pullback) = valueWithPullback(at: input) { scalar / $0 }
-    #expect(value.isClose(to: Tensor(scalar).dividing(input), rtol: 1e-6, atol: 1e-6, equalNan: false))
+    #expect(
+      value.isClose(to: Tensor(scalar).dividing(input), rtol: 1e-6, atol: 1e-6, equalNan: false))
     let grad = pullback(upstream)
     let expected = upstream.multiplying(scalar).dividing(input.multiplying(input)).negated()
     #expect(grad.isClose(to: expected, rtol: 1e-6, atol: 1e-6, equalNan: false))

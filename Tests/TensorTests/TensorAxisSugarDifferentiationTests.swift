@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 @Test("Differentiation: axis-based select shares pullback with integer variant")
 func axisSelectGradientMatchesIntegerVariant() throws {

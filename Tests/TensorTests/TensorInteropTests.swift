@@ -1,5 +1,6 @@
 import Testing
-@testable import ATen
+
+@testable import Torch
 
 @Test("Host buffer borrowing falls back to copies when needed")
 func hostBufferAccessWorks() throws {

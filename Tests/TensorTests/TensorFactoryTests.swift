@@ -1,9 +1,10 @@
 import Testing
-@testable import ATen
+
+@testable import Torch
 
 // ✅ 1. Correct way to define a custom tag
 extension Tag {
-    @Tag static var factory: Self
+  @Tag static var factory: Self
 }
 
 @Test("Zeros factory produces correct shape and dtype")

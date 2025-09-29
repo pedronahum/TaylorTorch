@@ -1,9 +1,11 @@
 #pragma once
 #include <ATen/ATen.h>
 #include <vector>
+#include <utility>
 #include <ATen/ops/where.h>
 #include <ATen/ops/allclose.h>
 
+#include <swift/bridging>
 
 // Forward-declare the helper function so the class can see it
 class TTSTensor;
@@ -15,187 +17,213 @@ class TTSTensor
   at::Tensor t_;
 
 public:
-  const at::Tensor& _t() const noexcept { return t_; }
+  const at::Tensor &_t() const noexcept { return t_; }
 
   // ---- Factories: copy from host memory (safe) -------------------------------
 
-// ---------- Host array constructors (handy in doctests) ----------
-template <typename T>
-static TTSTensor fromHostArray(const T* data,
-                               size_t ndims,
-                               const int64_t* shape,
-                               c10::ScalarType dtype,
-                               c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  std::vector<int64_t> sizes(shape, shape + ndims);
-  auto opts = at::TensorOptions().dtype(dtype).device(device);
-  // from_blob does not own memory; clone() so the resulting tensor owns storage.
-  at::Tensor t = at::from_blob(const_cast<T*>(data), sizes, opts).clone();
-  return TTSTensor(std::move(t));
-}
+  // ---------- Host array constructors (handy in doctests) ----------
+  template <typename T>
+  static TTSTensor fromHostArray(const T *data,
+                                 size_t ndims,
+                                 const int64_t *shape,
+                                 c10::ScalarType dtype,
+                                 c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    std::vector<int64_t> sizes(shape, shape + ndims);
+    auto opts = at::TensorOptions().dtype(dtype).device(device);
+    // from_blob does not own memory; clone() so the resulting tensor owns storage.
+    at::Tensor t = at::from_blob(const_cast<T *>(data), sizes, opts).clone();
+    return TTSTensor(std::move(t));
+  }
 
-// Special-case for boolean data commonly represented as bytes in tests.
-// You can pass uint8_t* with dtype = c10::ScalarType::Bool and we will cast.
-static TTSTensor fromHostBytesAsBool(const uint8_t* data,
-                                     size_t ndims,
-                                     const int64_t* shape,
-                                     c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  std::vector<int64_t> sizes(shape, shape + ndims);
-  auto byteOpts = at::TensorOptions().dtype(c10::ScalarType::Byte).device(device);
-  at::Tensor byteT = at::from_blob(const_cast<uint8_t*>(data), sizes, byteOpts).clone();
-  at::Tensor boolT = byteT.to(c10::ScalarType::Bool);
-  return TTSTensor(std::move(boolT));
-}
+  // Special-case for boolean data commonly represented as bytes in tests.
+  // You can pass uint8_t* with dtype = c10::ScalarType::Bool and we will cast.
+  static TTSTensor fromHostBytesAsBool(const uint8_t *data,
+                                       size_t ndims,
+                                       const int64_t *shape,
+                                       c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    std::vector<int64_t> sizes(shape, shape + ndims);
+    auto byteOpts = at::TensorOptions().dtype(c10::ScalarType::Byte).device(device);
+    at::Tensor byteT = at::from_blob(const_cast<uint8_t *>(data), sizes, byteOpts).clone();
+    at::Tensor boolT = byteT.to(c10::ScalarType::Bool);
+    return TTSTensor(std::move(boolT));
+  }
 
-// ---- Typed pointer overloads (common dtypes) ----
-static TTSTensor fromArray(const float*    data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<float>(data, ndim, sizes, c10::kFloat, device);
-}
-static TTSTensor fromArray(const double*   data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<double>(data, ndim, sizes, c10::kDouble, device);
-}
-static TTSTensor fromArray(const int64_t*  data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<int64_t>(data, ndim, sizes, c10::kLong, device);
-}
-static TTSTensor fromArray(const int32_t*  data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<int32_t>(data, ndim, sizes, c10::kInt, device);
-}
-static TTSTensor fromArray(const int16_t*  data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<int16_t>(data, ndim, sizes, c10::kShort, device);
-}
-static TTSTensor fromArray(const int8_t*   data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<int8_t>(data, ndim, sizes, c10::kChar, device);
-}
-static TTSTensor fromArray(const uint8_t*  data, size_t ndim, const int64_t* sizes,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<uint8_t>(data, ndim, sizes, c10::kByte, device);
-}
+  // ---- Typed pointer overloads (common dtypes) ----
+  static TTSTensor fromArray(const float *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<float>(data, ndim, sizes, c10::kFloat, device);
+  }
+  static TTSTensor fromArray(const double *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<double>(data, ndim, sizes, c10::kDouble, device);
+  }
+  static TTSTensor fromArray(const int64_t *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<int64_t>(data, ndim, sizes, c10::kLong, device);
+  }
+  static TTSTensor fromArray(const int32_t *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<int32_t>(data, ndim, sizes, c10::kInt, device);
+  }
+  static TTSTensor fromArray(const int16_t *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<int16_t>(data, ndim, sizes, c10::kShort, device);
+  }
+  static TTSTensor fromArray(const int8_t *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<int8_t>(data, ndim, sizes, c10::kChar, device);
+  }
+  static TTSTensor fromArray(const uint8_t *data, size_t ndim, const int64_t *sizes,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<uint8_t>(data, ndim, sizes, c10::kByte, device);
+  }
 
-// ---- Masks (prefer uint8_t 0/1 or bool*) ----
-static TTSTensor fromMask(const uint8_t* data, size_t ndim, const int64_t* sizes,
-                          c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  auto options = at::TensorOptions().dtype(c10::kByte).device(device);
-  at::Tensor t = at::from_blob(const_cast<uint8_t*>(data),
-                               at::IntArrayRef(sizes, ndim), options).clone();
-  return TTSTensor(t.to(c10::kBool));
-}
-static TTSTensor fromMask(const bool* data, size_t ndim, const int64_t* sizes,
-                          c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromHostArray<bool>(data, ndim, sizes, c10::kBool, device);
-}
+  // ---- Masks (prefer uint8_t 0/1 or bool*) ----
+  static TTSTensor fromMask(const uint8_t *data, size_t ndim, const int64_t *sizes,
+                            c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    auto options = at::TensorOptions().dtype(c10::kByte).device(device);
+    at::Tensor t = at::from_blob(const_cast<uint8_t *>(data),
+                                 at::IntArrayRef(sizes, ndim), options)
+                       .clone();
+    return TTSTensor(t.to(c10::kBool));
+  }
+  static TTSTensor fromMask(const bool *data, size_t ndim, const int64_t *sizes,
+                            c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromHostArray<bool>(data, ndim, sizes, c10::kBool, device);
+  }
 
-// ---- std::vector<T> convenience with shape checking ----
-template <typename T>
-static TTSTensor fromArray(const std::vector<T>& host,
-                           const std::vector<int64_t>& shape,
-                           c10::ScalarType dtype,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  size_t numel = 1;
-  for (auto s : shape) numel *= static_cast<size_t>(s);
-  TORCH_CHECK(numel == host.size(),
-              "fromArray: host.size() (", host.size(),
-              ") != product(shape) (", numel, ")");
-  return fromHostArray<T>(host.data(), shape.size(), shape.data(), dtype, device);
-}
+  // ---- std::vector<T> convenience with shape checking ----
+  template <typename T>
+  static TTSTensor fromArray(const std::vector<T> &host,
+                             const std::vector<int64_t> &shape,
+                             c10::ScalarType dtype,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    size_t numel = 1;
+    for (auto s : shape)
+      numel *= static_cast<size_t>(s);
+    TORCH_CHECK(numel == host.size(),
+                "fromArray: host.size() (", host.size(),
+                ") != product(shape) (", numel, ")");
+    return fromHostArray<T>(host.data(), shape.size(), shape.data(), dtype, device);
+  }
 
-// Typed vector overloads
-static TTSTensor fromArray(const std::vector<float>&   v,
-                           const std::vector<int64_t>& shape,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromArray<float>(v, shape, c10::kFloat, device);
-}
-static TTSTensor fromArray(const std::vector<double>&  v,
-                           const std::vector<int64_t>& shape,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromArray<double>(v, shape, c10::kDouble, device);
-}
-static TTSTensor fromArray(const std::vector<int64_t>& v,
-                           const std::vector<int64_t>& shape,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromArray<int64_t>(v, shape, c10::kLong, device);
-}
-static TTSTensor fromArray(const std::vector<int32_t>& v,
-                           const std::vector<int64_t>& shape,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromArray<int32_t>(v, shape, c10::kInt, device);
-}
-static TTSTensor fromArray(const std::vector<uint8_t>& v,
-                           const std::vector<int64_t>& shape,
-                           c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  return fromArray<uint8_t>(v, shape, c10::kByte, device);
-}
+  // Typed vector overloads
+  static TTSTensor fromArray(const std::vector<float> &v,
+                             const std::vector<int64_t> &shape,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromArray<float>(v, shape, c10::kFloat, device);
+  }
+  static TTSTensor fromArray(const std::vector<double> &v,
+                             const std::vector<int64_t> &shape,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromArray<double>(v, shape, c10::kDouble, device);
+  }
+  static TTSTensor fromArray(const std::vector<int64_t> &v,
+                             const std::vector<int64_t> &shape,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromArray<int64_t>(v, shape, c10::kLong, device);
+  }
+  static TTSTensor fromArray(const std::vector<int32_t> &v,
+                             const std::vector<int64_t> &shape,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromArray<int32_t>(v, shape, c10::kInt, device);
+  }
+  static TTSTensor fromArray(const std::vector<uint8_t> &v,
+                             const std::vector<int64_t> &shape,
+                             c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    return fromArray<uint8_t>(v, shape, c10::kByte, device);
+  }
 
-// Vector<bool> has no data(); accept uint8_t 0/1 instead.
-static TTSTensor fromMask(const std::vector<uint8_t>& v,
-                          const std::vector<int64_t>& shape,
-                          c10::Device device = c10::Device(c10::DeviceType::CPU)) {
-  size_t numel = 1;
-  for (auto s : shape) numel *= static_cast<size_t>(s);
-  TORCH_CHECK(numel == v.size(),
-              "fromMask: host.size() (", v.size(),
-              ") != product(shape) (", numel, ")");
-  return fromMask(v.data(), shape.size(), shape.data(), device);
-}
+  // Vector<bool> has no data(); accept uint8_t 0/1 instead.
+  static TTSTensor fromMask(const std::vector<uint8_t> &v,
+                            const std::vector<int64_t> &shape,
+                            c10::Device device = c10::Device(c10::DeviceType::CPU))
+  {
+    size_t numel = 1;
+    for (auto s : shape)
+      numel *= static_cast<size_t>(s);
+    TORCH_CHECK(numel == v.size(),
+                "fromMask: host.size() (", v.size(),
+                ") != product(shape) (", numel, ")");
+    return fromMask(v.data(), shape.size(), shape.data(), device);
+  }
 
-// ---------- Broadcast/expand views ----------
-TTSTensor broadcast_to(const int64_t* sizes, size_t ndims) const {
-  std::vector<int64_t> sz(sizes, sizes + ndims);
-  return TTSTensor(t_.expand(sz));
-}
+  // ---------- Broadcast/expand views ----------
+  TTSTensor broadcast_to(const int64_t *sizes, size_t ndims) const
+  {
+    std::vector<int64_t> sz(sizes, sizes + ndims);
+    return TTSTensor(t_.expand(sz));
+  }
 
-TTSTensor broadcast_to(const std::vector<int64_t>& sizes) const {
-  return TTSTensor(t_.expand(sizes));
-}
+  TTSTensor broadcast_to(const std::vector<int64_t> &sizes) const
+  {
+    return TTSTensor(t_.expand(sizes));
+  }
 
-TTSTensor expand_as(const TTSTensor& other) const {
-  return TTSTensor(t_.expand_as(other.t_));
-}
+  TTSTensor expand_as(const TTSTensor &other) const
+  {
+    return TTSTensor(t_.expand_as(other.t_));
+  }
 
-// ---------- where(cond, src, self) convenience ----------
-static TTSTensor where3(const TTSTensor& cond, const TTSTensor& a, const TTSTensor& b) {
-  return TTSTensor(at::where(cond.t_, a.t_, b.t_));
-}
+  // ---------- where(cond, src, self) convenience ----------
+  static TTSTensor where3(const TTSTensor &cond, const TTSTensor &a, const TTSTensor &b)
+  {
+    return TTSTensor(at::where(cond.t_, a.t_, b.t_));
+  }
 
-// As a method on "self": self.where(mask, src) == where(mask, src, self)
-TTSTensor where(const TTSTensor& cond, const TTSTensor& src) const {
-  return TTSTensor(at::where(cond.t_, src.t_, t_));
-}
-
-
+  // As a method on "self": self.where(mask, src) == where(mask, src, self)
+  TTSTensor where(const TTSTensor &cond, const TTSTensor &src) const
+  {
+    return TTSTensor(at::where(cond.t_, src.t_, t_));
+  }
 
   // Scalar extractor for rank-0 tensors
-double toDouble() const {
-  return t_.item<double>();
-}
+  double toDouble() const
+  {
+    return t_.item<double>();
+  }
 
-// In struct TTSTensor (public section), add:
-double itemDouble() const { return t_.item<double>(); }
-int64_t itemInt64() const { return t_.item<int64_t>(); }
-bool itemBool() const { return t_.item<bool>(); }
+  // In struct TTSTensor (public section), add:
+  double itemDouble() const { return t_.item<double>(); }
+  int64_t itemInt64() const { return t_.item<int64_t>(); }
+  bool itemBool() const { return t_.item<bool>(); }
 
+  // masked_fill(self, mask, scalar)
+  TTSTensor maskedFill(const TTSTensor &mask, c10::Scalar value) const
+  {
+    return TTSTensor(t_.masked_fill(mask.t_, value));
+  }
 
-// masked_fill(self, mask, scalar)
-TTSTensor maskedFill(const TTSTensor& mask, c10::Scalar value) const {
-  return TTSTensor(t_.masked_fill(mask.t_, value));
-}
+  // masked_scatter(self, mask, source)
+  TTSTensor maskedScatter(const TTSTensor &mask, const TTSTensor &source) const
+  {
+    return TTSTensor(t_.masked_scatter(mask.t_, source.t_));
+  }
 
-// masked_scatter(self, mask, source)
-TTSTensor maskedScatter(const TTSTensor& mask, const TTSTensor& source) const {
-  return TTSTensor(t_.masked_scatter(mask.t_, source.t_));
-}
+  // Extract a single boolean value from a rank-0 Bool tensor
+  bool toBool() const
+  {
+    return t_.item<bool>();
+  }
 
-// Extract a single boolean value from a rank-0 Bool tensor
-bool toBool() const {
-  return t_.item<bool>();
-}
-
-
-// ✅ Add this 'friend' declaration inside the class.
+  // ✅ Add this 'friend' declaration inside the class.
   // This gives the helper function access to private members.
   friend TTSTensor masked_fill_tensor_helper(const TTSTensor &self, const TTSTensor &mask, const TTSTensor &value);
 
@@ -510,7 +538,6 @@ public:
     return TTSTensor(t_.flatten(sd, ed));
   }
 
-
   // indexSelect(dim, indices[]) using a CPU Long tensor for indices
   // In TTSTensor class inside tensor_shim.hpp
 
@@ -522,7 +549,8 @@ public:
 
     // 💡 FIX: Create a temporary vector and fill it with normalized indices.
     std::vector<int64_t> normalized_idx(count);
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < count; ++i)
+    {
       normalized_idx[i] = idx[i] < 0 ? idx[i] + dim_size : idx[i];
     }
 
@@ -535,44 +563,43 @@ public:
     return TTSTensor(t_.index_select(d, i_tensor.to(t_.device())));
   }
 
-  
-  TTSTensor masked_scatter(const TTSTensor& mask, const TTSTensor& source) const
-{
-  // First, ensure the mask is boolean.
-  at::Tensor bool_mask = mask.t_.is_same(t_) ? mask.t_.to(at::kBool) : mask.t_;
-  if (bool_mask.scalar_type() != at::kBool) {
+  TTSTensor masked_scatter(const TTSTensor &mask, const TTSTensor &source) const
+  {
+    // First, ensure the mask is boolean.
+    at::Tensor bool_mask = mask.t_.is_same(t_) ? mask.t_.to(at::kBool) : mask.t_;
+    if (bool_mask.scalar_type() != at::kBool)
+    {
       bool_mask = bool_mask.to(at::kBool);
+    }
+
+    // Count the number of true elements in the mask.
+    const int64_t true_count = at::sum(bool_mask).item<int64_t>();
+    const int64_t source_numel = source.numel();
+
+    // Throw if the counts don't match exactly.
+    TORCH_CHECK(source_numel == true_count,
+                "masked_scatter: number of elements in source (", source_numel,
+                ") must match the number of true elements in mask (", true_count, ")");
+
+    // Call the underlying ATen function. Note the use of the validated bool_mask.
+    return TTSTensor(t_.masked_scatter(bool_mask, source.t_));
   }
-
-  // Count the number of true elements in the mask.
-  const int64_t true_count = at::sum(bool_mask).item<int64_t>();
-  const int64_t source_numel = source.numel();
-
-  // Throw if the counts don't match exactly.
-  TORCH_CHECK(source_numel == true_count,
-              "masked_scatter: number of elements in source (", source_numel,
-              ") must match the number of true elements in mask (", true_count, ")");
-
-  // Call the underlying ATen function. Note the use of the validated bool_mask.
-  return TTSTensor(t_.masked_scatter(bool_mask, source.t_));
-}
 
   // Adds all values from the 'source' tensor into self at the indices
   // ... rest of the class definition ...
-
 
   // Adds all values from the 'source' tensor into self at the indices
   // specified in the 'index' tensor along a given 'dim'.
   TTSTensor scatterAdd(int64_t dim, const TTSTensor &index, const TTSTensor &source) const
   {
-  auto d = _canon_dim(t_, dim);
-  at::Tensor result = t_.clone();
-  
-  // ✅ Convert index tensor to Int64 (Long) before the operation
-  at::Tensor index_long = index.t_.to(c10::ScalarType::Long);
-  
-  result.scatter_add_(d, index_long, source.t_);
-  return TTSTensor(result);
+    auto d = _canon_dim(t_, dim);
+    at::Tensor result = t_.clone();
+
+    // ✅ Convert index tensor to Int64 (Long) before the operation
+    at::Tensor index_long = index.t_.to(c10::ScalarType::Long);
+
+    result.scatter_add_(d, index_long, source.t_);
+    return TTSTensor(result);
   }
 
   // Places values from the 'values' tensor into self at locations specified
@@ -768,27 +795,44 @@ public:
   TTSTensor geScalar(c10::Scalar s) const { return TTSTensor(t_.ge(s)); }
 
   // ---- Reductions that also return indices (NEW)
+  // This is the targeted patch to fix the crash and improve performance.
 
-  // Returns the minimum VALUES
-  TTSTensor minDim(int64_t dim, bool keepdim = false) const
+  // These functions call the underlying operation ONCE and return a std::pair,
+  // which Swift's C++ Interop will bridge to a tuple.
+  std::pair<TTSTensor, TTSTensor> minDimWithIndices(int64_t dim, bool keepdim) const SWIFT_RETURNS_INDEPENDENT_VALUE
   {
     auto d = _canon_dim(t_, dim);
-    return TTSTensor(std::get<0>(at::min(t_, d, keepdim)));
+    auto result_tuple = at::min(t_, d, keepdim);
+    return {TTSTensor(std::get<0>(result_tuple)), TTSTensor(std::get<1>(result_tuple))};
   }
-  // Returns the minimum INDICES
+
+  std::pair<TTSTensor, TTSTensor> maxDimWithIndices(int64_t dim, bool keepdim) const SWIFT_RETURNS_INDEPENDENT_VALUE
+  {
+    auto d = _canon_dim(t_, dim);
+    auto result_tuple = at::max(t_, d, keepdim);
+    return {TTSTensor(std::get<0>(result_tuple)), TTSTensor(std::get<1>(result_tuple))};
+  }
+
+  std::pair<TTSTensor, TTSTensor> topkWithIndices(int64_t k, int64_t dim, bool largest, bool sorted) const SWIFT_RETURNS_INDEPENDENT_VALUE
+  {
+    auto d = _canon_dim(t_, dim);
+    auto result_tuple = at::topk(t_, k, d, largest, sorted);
+    return {TTSTensor(std::get<0>(result_tuple)), TTSTensor(std::get<1>(result_tuple))};
+  }
+
+  std::pair<TTSTensor, TTSTensor> sortDimWithIndices(int64_t dim, bool descending) const SWIFT_RETURNS_INDEPENDENT_VALUE
+  {
+    auto d = _canon_dim(t_, dim);
+    auto result_tuple = at::sort(t_, d, descending);
+    return {TTSTensor(std::get<0>(result_tuple)), TTSTensor(std::get<1>(result_tuple))};
+  }
+
+  // Argmin/Argmax are still needed for cases where only indices are required.
   TTSTensor argminDim(int64_t dim, bool keepdim = false) const
   {
     auto d = _canon_dim(t_, dim);
     return TTSTensor(std::get<1>(at::min(t_, d, keepdim)));
   }
-
-  // Returns the maximum VALUES
-  TTSTensor maxDim(int64_t dim, bool keepdim = false) const
-  {
-    auto d = _canon_dim(t_, dim);
-    return TTSTensor(std::get<0>(at::max(t_, d, keepdim)));
-  }
-  // Returns the maximum INDICES
   TTSTensor argmaxDim(int64_t dim, bool keepdim = false) const
   {
     auto d = _canon_dim(t_, dim);

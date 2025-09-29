@@ -1,5 +1,6 @@
 import Testing
-@testable import ATen
+
+@testable import Torch
 
 @Test("Basic select and slice operations")
 func selectAndSliceWork() throws {
@@ -55,7 +56,7 @@ func tensorIndexVariadicSubscriptWorks() throws {
   #expect(view.shape == [3, 4])
 
   let expanded = tensor[.newAxis, .i(0), .range(1..<3), .closed(0...2)]
-  
+
   // ✅ Corrected the expected shape and data
   #expect(expanded.shape == [1, 2, 3])
   let data = expanded.toArray(as: Int64.self)

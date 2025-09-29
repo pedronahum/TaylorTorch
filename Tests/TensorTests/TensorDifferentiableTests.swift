@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 private func onesLike(_ tensor: Tensor) -> Tensor {
   Tensor.ones(shape: tensor.shape, dtype: tensor.dtype!)
@@ -36,4 +36,3 @@ func addingScalarGradientMatchesAnalytic() throws {
   let grad = pullback(upstream)
   #expect(grad.isClose(to: upstream, rtol: 1e-6, atol: 1e-6, equalNan: false))
 }
-

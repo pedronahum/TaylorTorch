@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 @Test("Differentiation: cat partitions upstream gradient per operand")
 func catGradientPartitionsUpstream() throws {

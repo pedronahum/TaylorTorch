@@ -1,6 +1,7 @@
 import Foundation
 import Testing
-@testable import ATen
+
+@testable import Torch
 
 @Test("Unary math operations are applied element-wise")
 func unaryOperationsBehave() throws {

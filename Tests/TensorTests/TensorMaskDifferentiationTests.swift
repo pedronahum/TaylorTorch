@@ -1,7 +1,7 @@
 import Testing
 import _Differentiation
 
-@testable import ATen
+@testable import Torch
 
 @Test("Differentiation: maskedFill scalar blocks masked gradient")
 func maskedFillScalarStopsGradientThroughMaskedEntries() throws {
