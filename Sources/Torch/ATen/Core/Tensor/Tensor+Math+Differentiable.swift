@@ -142,6 +142,227 @@ extension Tensor {
       }
     )
   }
+
+  /// Reverse-mode derivative for `tanh`, scaling by `1 - tanh(x)^2`.
+  @derivative(of: tanh)
+  @inlinable
+  internal func _vjpTanh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.tanh()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let gradFactor = _onesLike(self, dtype: dtype).subtracting(result.multiplying(result))
+        return v.multiplying(gradFactor)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `sigmoid`, scaling by `sigmoid(x) * (1 - sigmoid(x))`.
+  @derivative(of: sigmoid)
+  @inlinable
+  internal func _vjpSigmoid() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.sigmoid()
+    return (
+      result,
+      { v in
+        let complement = result.negated().adding(1)
+        return v.multiplying(result).multiplying(complement)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `sin`, multiplying by `cos(x)`.
+  @derivative(of: sin)
+  @inlinable
+  internal func _vjpSin() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.sin()
+    let cosValue = self.cos()
+    return (
+      result,
+      { v in v.multiplying(cosValue) }
+    )
+  }
+
+  /// Reverse-mode derivative for `cos`, multiplying by `-sin(x)`.
+  @derivative(of: cos)
+  @inlinable
+  internal func _vjpCos() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.cos()
+    let sinValue = self.sin()
+    return (
+      result,
+      { v in v.multiplying(sinValue).negated() }
+    )
+  }
+
+  /// Reverse-mode derivative for `tan`, scaling by `1 + tan(x)^2`.
+  @derivative(of: tan)
+  @inlinable
+  internal func _vjpTan() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.tan()
+    return (
+      result,
+      { v in
+        let gradFactor = result.multiplying(result).adding(1)
+        return v.multiplying(gradFactor)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `asin`, dividing by `sqrt(1 - x^2)`.
+  @derivative(of: asin)
+  @inlinable
+  internal func _vjpAsin() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.asin()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = _onesLike(self, dtype: dtype)
+          .subtracting(self.multiplying(self))
+          .sqrt()
+        return v.dividing(denom)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `acos`, dividing by `-sqrt(1 - x^2)`.
+  @derivative(of: acos)
+  @inlinable
+  internal func _vjpAcos() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.acos()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = _onesLike(self, dtype: dtype)
+          .subtracting(self.multiplying(self))
+          .sqrt()
+        return v.dividing(denom).negated()
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `atan`, dividing by `1 + x^2`.
+  @derivative(of: atan)
+  @inlinable
+  internal func _vjpAtan() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.atan()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = _onesLike(self, dtype: dtype)
+          .adding(self.multiplying(self))
+        return v.dividing(denom)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `sinh`, multiplying by `cosh(x)`.
+  @derivative(of: sinh)
+  @inlinable
+  internal func _vjpSinh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.sinh()
+    let coshValue = self.cosh()
+    return (
+      result,
+      { v in v.multiplying(coshValue) }
+    )
+  }
+
+  /// Reverse-mode derivative for `cosh`, multiplying by `sinh(x)`.
+  @derivative(of: cosh)
+  @inlinable
+  internal func _vjpCosh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.cosh()
+    let sinhValue = self.sinh()
+    return (
+      result,
+      { v in v.multiplying(sinhValue) }
+    )
+  }
+
+  /// Reverse-mode derivative for `asinh`, dividing by `sqrt(1 + x^2)`.
+  @derivative(of: asinh)
+  @inlinable
+  internal func _vjpAsinh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.asinh()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = _onesLike(self, dtype: dtype)
+          .adding(self.multiplying(self))
+          .sqrt()
+        return v.dividing(denom)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `acosh`, dividing by `sqrt(x^2 - 1)`.
+  @derivative(of: acosh)
+  @inlinable
+  internal func _vjpAcosh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.acosh()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = self.multiplying(self)
+          .subtracting(_onesLike(self, dtype: dtype))
+          .sqrt()
+        return v.dividing(denom)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `atanh`, dividing by `1 - x^2`.
+  @derivative(of: atanh)
+  @inlinable
+  internal func _vjpAtanh() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.atanh()
+    return (
+      result,
+      { v in
+        let dtype = v.dtype ?? self.dtype ?? .float32
+        let denom = _onesLike(self, dtype: dtype)
+          .subtracting(self.multiplying(self))
+        return v.dividing(denom)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `erf`, scaling by `(2/√π) * exp(-x^2)`.
+  @derivative(of: erf)
+  @inlinable
+  internal func _vjpErf() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.erf()
+    return (
+      result,
+      { v in
+        let expTerm = self.multiplying(self).negated().exp()
+        let factor = 2.0 / Double.pi.squareRoot()
+        return v.multiplying(factor).multiplying(expTerm)
+      }
+    )
+  }
+
+  /// Reverse-mode derivative for `erfc`, scaling by `-(2/√π) * exp(-x^2)`.
+  @derivative(of: erfc)
+  @inlinable
+  internal func _vjpErfc() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let result = self.erfc()
+    return (
+      result,
+      { v in
+        let expTerm = self.multiplying(self).negated().exp()
+        let factor = -2.0 / Double.pi.squareRoot()
+        return v.multiplying(factor).multiplying(expTerm)
+      }
+    )
+  }
 }
 
 // MARK: - Binary (tensor ⊗ tensor) Differentiation

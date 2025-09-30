@@ -35,12 +35,57 @@ extension Tensor {
   @inlinable
   public func sigmoid() -> Tensor { Tensor(_impl.sigmoid_()) }
 
-  // TODO: add more functions as needed (e.g. sin, cos, tan, sigmoid, tanh, asin, acos, atan, sinh, cosh, asinh, acosh, atanh, erf, erfc, etc.)
-  // Ensure all available activations functions in ATen.h are added to the tensor_shim.hpp (Unary section) (if not currently available in the C++ shim).
-  // For each new function, ensure it has differentiable capabilities in Tensor+Math+Differentiable.swift
-  // For each new function, add corresponding tests in TensorMathTests.swift.
-  // For each new function, add corresponding differentiation tests in TensorMathDifferentiationTests.swift.
+  /// Returns the element-wise sine of the tensor.
+  @inlinable
+  public func sin() -> Tensor { Tensor(_impl.sin_()) }
 
+  /// Returns the element-wise cosine of the tensor.
+  @inlinable
+  public func cos() -> Tensor { Tensor(_impl.cos_()) }
+
+  /// Returns the element-wise tangent of the tensor.
+  @inlinable
+  public func tan() -> Tensor { Tensor(_impl.tan_()) }
+
+  /// Returns the element-wise arcsine of the tensor.
+  @inlinable
+  public func asin() -> Tensor { Tensor(_impl.asin_()) }
+
+  /// Returns the element-wise arccosine of the tensor.
+  @inlinable
+  public func acos() -> Tensor { Tensor(_impl.acos_()) }
+
+  /// Returns the element-wise arctangent of the tensor.
+  @inlinable
+  public func atan() -> Tensor { Tensor(_impl.atan_()) }
+
+  /// Returns the element-wise hyperbolic sine of the tensor.
+  @inlinable
+  public func sinh() -> Tensor { Tensor(_impl.sinh_()) }
+
+  /// Returns the element-wise hyperbolic cosine of the tensor.
+  @inlinable
+  public func cosh() -> Tensor { Tensor(_impl.cosh_()) }
+
+  /// Returns the element-wise inverse hyperbolic sine of the tensor.
+  @inlinable
+  public func asinh() -> Tensor { Tensor(_impl.asinh_()) }
+
+  /// Returns the element-wise inverse hyperbolic cosine of the tensor.
+  @inlinable
+  public func acosh() -> Tensor { Tensor(_impl.acosh_()) }
+
+  /// Returns the element-wise inverse hyperbolic tangent of the tensor.
+  @inlinable
+  public func atanh() -> Tensor { Tensor(_impl.atanh_()) }
+
+  /// Returns the element-wise Gauss error function of the tensor.
+  @inlinable
+  public func erf() -> Tensor { Tensor(_impl.erf_()) }
+
+  /// Returns the element-wise complementary error function of the tensor.
+  @inlinable
+  public func erfc() -> Tensor { Tensor(_impl.erfc_()) }
 }
 
 // MARK: - Binary (tensor ⊗ tensor)

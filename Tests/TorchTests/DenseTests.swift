@@ -12,8 +12,8 @@ func dense_matches_linear_plus_activation() throws {
   let W = Tensor(array: [1.0, 0.0, -1.0, 0.5, 2.0, 1.0], shape: [2, 3])
   let b = Tensor(array: [0.1, -0.2], shape: [2])
 
-  var lin = Linear(weight: W, bias: b)
-  var dense = Dense(linear: lin, activation: Activations.relu)
+  let lin = Linear(weight: W, bias: b)
+  let dense = Dense(linear: lin, activation: Activations.relu)
 
   // Forward: Dense == relu(Linear(x))
   let yDense = dense(x)

@@ -120,7 +120,23 @@ public enum Activations {
   // See (Section Unary of tensor_shim.hpp)
   // Implement the swift wrappers and make them differentiable.
   // See (Tensor+Math.swift and Tensor+Math+Differentiable.swift)
-  //
-  //@differentiable(reverse) public static func tanh(_ x: Tensor) -> Tensor { x.tanh() }
-  //@differentiable(reverse) public static func sigmoid(_ x: Tensor) -> Tensor { x.sigmoid() }
+  @differentiable(reverse) public static func exp(_ x: Tensor) -> Tensor { x.exp() }
+  @differentiable(reverse) public static func log(_ x: Tensor) -> Tensor { x.log() }
+  @differentiable(reverse) public static func sqrt(_ x: Tensor) -> Tensor { x.sqrt() }
+  @differentiable(reverse) public static func tanh(_ x: Tensor) -> Tensor { x.tanh() }
+  @differentiable(reverse) public static func sigmoid(_ x: Tensor) -> Tensor { x.sigmoid() }
+  @differentiable(reverse) public static func sin(_ x: Tensor) -> Tensor { x.sin() }
+  @differentiable(reverse) public static func cos(_ x: Tensor) -> Tensor { x.cos() }
+  @differentiable(reverse) public static func tan(_ x: Tensor) -> Tensor { x.tan() }
+  @differentiable(reverse) public static func asin(_ x: Tensor) -> Tensor { x.asin() }
+  @differentiable(reverse) public static func acos(_ x: Tensor) -> Tensor { x.acos() }
+  @differentiable(reverse) public static func atan(_ x: Tensor) -> Tensor { x.atan() }
+  @differentiable(reverse) public static func sinh(_ x: Tensor) -> Tensor { x.sinh() }
+  @differentiable(reverse) public static func cosh(_ x: Tensor) -> Tensor { x.cosh() }
+  @differentiable(reverse) public static func asinh(_ x: Tensor) -> Tensor { x.asinh() }
+  @differentiable(reverse) public static func acosh(_ x: Tensor) -> Tensor { x.acosh() }
+  @differentiable(reverse) public static func atanh(_ x: Tensor) -> Tensor { x.atanh() }
+  @differentiable(reverse) public static func erf(_ x: Tensor) -> Tensor { x.erf() }
+  @differentiable(reverse) public static func erfc(_ x: Tensor) -> Tensor { x.erfc() }
+
 }
