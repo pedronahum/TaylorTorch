@@ -722,6 +722,21 @@ public:
   TTSTensor exp_() const { return TTSTensor(at::exp(t_)); }
   TTSTensor log_() const { return TTSTensor(at::log(t_)); }
   TTSTensor sqrt_() const { return TTSTensor(at::sqrt(t_)); }
+  TTSTensor sin_() const { return TTSTensor(at::sin(t_)); }
+  TTSTensor cos_() const { return TTSTensor(at::cos(t_)); }
+  TTSTensor tan_() const { return TTSTensor(at::tan(t_)); }
+  TTSTensor asin_() const { return TTSTensor(at::asin(t_)); }
+  TTSTensor acos_() const { return TTSTensor(at::acos(t_)); }
+  TTSTensor atan_() const { return TTSTensor(at::atan(t_)); }
+  TTSTensor sinh_() const { return TTSTensor(at::sinh(t_)); }
+  TTSTensor cosh_() const { return TTSTensor(at::cosh(t_)); }
+  TTSTensor tanh_() const { return TTSTensor(at::tanh(t_)); }
+  TTSTensor asinh_() const { return TTSTensor(at::asinh(t_)); }
+  TTSTensor acosh_() const { return TTSTensor(at::acosh(t_)); }
+  TTSTensor atanh_() const { return TTSTensor(at::atanh(t_)); }
+  TTSTensor erf_() const { return TTSTensor(at::erf(t_)); }
+  TTSTensor erfc_() const { return TTSTensor(at::erfc(t_)); }
+  TTSTensor sigmoid_() const { return TTSTensor(at::sigmoid(t_)); }
 
   // Binary (tensor ⊗ tensor)
   TTSTensor sub(const TTSTensor &other, c10::Scalar alpha = 1) const

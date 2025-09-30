@@ -26,6 +26,21 @@ extension Tensor {
   /// Returns the element-wise square root of the tensor.
   @inlinable
   public func sqrt() -> Tensor { Tensor(_impl.sqrt_()) }
+
+  /// Returns the element-wise hyperbolic tangent of the tensor.
+  @inlinable
+  public func tanh() -> Tensor { Tensor(_impl.tanh_()) }
+
+  /// Returns the element-wise sigmoid of the tensor.
+  @inlinable
+  public func sigmoid() -> Tensor { Tensor(_impl.sigmoid_()) }
+
+  // TODO: add more functions as needed (e.g. sin, cos, tan, sigmoid, tanh, asin, acos, atan, sinh, cosh, asinh, acosh, atanh, erf, erfc, etc.)
+  // Ensure all available activations functions in ATen.h are added to the tensor_shim.hpp (Unary section) (if not currently available in the C++ shim).
+  // For each new function, ensure it has differentiable capabilities in Tensor+Math+Differentiable.swift
+  // For each new function, add corresponding tests in TensorMathTests.swift.
+  // For each new function, add corresponding differentiation tests in TensorMathDifferentiationTests.swift.
+
 }
 
 // MARK: - Binary (tensor ⊗ tensor)
