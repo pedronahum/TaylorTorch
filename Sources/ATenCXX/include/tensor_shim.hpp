@@ -19,6 +19,154 @@ class TTSTensor
 public:
   const at::Tensor &_t() const noexcept { return t_; }
 
+  // ---- Neural Network Ops
+  //--- helpers
+static inline at::IntArrayRef mk(const int64_t* p, intptr_t n) {
+  return at::IntArrayRef(p, static_cast<size_t>(n));
+}
+
+// ---- Neural Network Ops
+
+// Forward conv2d. Canonical order: (input, weight, bias*, stride*, len, padding*, len, dilation*, len, groups)
+static inline TTSTensor _conv2d(
+  const TTSTensor& input,
+  const TTSTensor& weight,
+  const TTSTensor* bias,                       // pass nullptr if no bias
+  const int64_t* stride, intptr_t stride_len,
+  const int64_t* padding, intptr_t padding_len,
+  const int64_t* dilation, intptr_t dilation_len,
+  int64_t groups){
+  auto y = at::convolution(
+      input._t(), weight._t(), (bias ? bias->_t() : at::Tensor{}),
+      mk(stride, stride_len), mk(padding, padding_len), mk(dilation, dilation_len),
+      false, {}, static_cast<long>(groups));
+  return TTSTensor(y);
+}
+
+// ------------------ conv2d_backward ------------------
+// New API (your headers): 
+// convolution_backward(grad_out, input, weight, bias_sizes(opt), stride, padding, dilation,
+//                      transposed, output_padding, groups, output_mask[3])
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _conv2d_backward(
+  const TTSTensor& grad_out,
+  const TTSTensor& input,
+  const TTSTensor& weight,
+  const int64_t* stride, intptr_t stride_len,
+  const int64_t* padding, intptr_t padding_len,
+  const int64_t* dilation, intptr_t dilation_len,
+  int64_t groups)
+{
+  std::array<bool, 3> output_mask{{true, true, true}};
+  const int64_t out_channels = weight._t().size(0);
+  std::array<int64_t, 1> bias_sizes_arr{{out_channels}};
+  at::IntArrayRef bias_sizes_ref(bias_sizes_arr);
+
+  auto tup = at::convolution_backward(
+      grad_out._t(), input._t(), weight._t(), bias_sizes_ref,
+      mk(stride, stride_len), mk(padding, padding_len), mk(dilation, dilation_len),
+      false, at::IntArrayRef{}, static_cast<long>(groups), output_mask);
+
+  return {
+    TTSTensor(std::get<0>(tup)),
+    TTSTensor(std::get<1>(tup)),
+    TTSTensor(std::get<2>(tup))
+  };
+}
+
+
+// --- Tiny getters so Swift doesn’t need std::get ----------
+// --- tuple getters (so Swift doesn’t need std.get)
+static inline TTSTensor _conv2d_backward_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _conv2d_backward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
+static inline TTSTensor _conv2d_backward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
+
+  
+
+  TTSTensor max_pool2d(
+      const int64_t *kernel_size, size_t kernel_size_len,
+      const int64_t *stride, size_t stride_len,
+      const int64_t *padding, size_t padding_len,
+      const int64_t *dilation, size_t dilation_len,
+      bool ceil_mode) const
+  {
+    return TTSTensor(at::max_pool2d(t_,
+                                    at::IntArrayRef(kernel_size, kernel_size_len),
+                                    at::IntArrayRef(stride, stride_len),
+                                    at::IntArrayRef(padding, padding_len),
+                                    at::IntArrayRef(dilation, dilation_len),
+                                    ceil_mode));
+  }
+
+  std::pair<TTSTensor, TTSTensor> max_pool2d_with_indices(
+      const int64_t *kernel_size, size_t kernel_size_len,
+      const int64_t *stride, size_t stride_len,
+      const int64_t *padding, size_t padding_len,
+      const int64_t *dilation, size_t dilation_len,
+      bool ceil_mode) const SWIFT_RETURNS_INDEPENDENT_VALUE
+  {
+    auto result = at::max_pool2d_with_indices(
+        t_,
+        at::IntArrayRef(kernel_size, kernel_size_len),
+        at::IntArrayRef(stride, stride_len),
+        at::IntArrayRef(padding, padding_len),
+        at::IntArrayRef(dilation, dilation_len),
+        ceil_mode);
+    return {TTSTensor(std::get<0>(result)), TTSTensor(std::get<1>(result))};
+  }
+
+  TTSTensor max_pool2d_with_indices_backward(
+      const TTSTensor &grad_output,
+      const int64_t *kernel_size, size_t kernel_size_len,
+      const int64_t *stride, size_t stride_len,
+      const int64_t *padding, size_t padding_len,
+      const int64_t *dilation, size_t dilation_len,
+      bool ceil_mode,
+      const TTSTensor &indices) const
+  {
+    return TTSTensor(at::max_pool2d_with_indices_backward(
+        grad_output.t_,
+        t_,
+        at::IntArrayRef(kernel_size, kernel_size_len),
+        at::IntArrayRef(stride, stride_len),
+        at::IntArrayRef(padding, padding_len),
+        at::IntArrayRef(dilation, dilation_len),
+        ceil_mode,
+        indices.t_));
+  }
+
+  TTSTensor avg_pool2d(
+      const int64_t *kernel_size, size_t kernel_size_len,
+      const int64_t *stride, size_t stride_len,
+      const int64_t *padding, size_t padding_len,
+      bool ceil_mode) const
+  {
+    return TTSTensor(at::avg_pool2d(t_,
+                                    at::IntArrayRef(kernel_size, kernel_size_len),
+                                    at::IntArrayRef(stride, stride_len),
+                                    at::IntArrayRef(padding, padding_len),
+                                    ceil_mode,
+                                    /*count_include_pad=*/true, // PyTorch default
+                                    c10::nullopt));
+  }
+
+  TTSTensor avg_pool2d_backward(
+      const TTSTensor &grad_output,
+      const int64_t *kernel_size, size_t kernel_size_len,
+      const int64_t *stride, size_t stride_len,
+      const int64_t *padding, size_t padding_len,
+      bool ceil_mode) const
+  {
+    return TTSTensor(at::avg_pool2d_backward(
+        grad_output.t_,
+        t_,
+        at::IntArrayRef(kernel_size, kernel_size_len),
+        at::IntArrayRef(stride, stride_len),
+        at::IntArrayRef(padding, padding_len),
+        ceil_mode,
+        /*count_include_pad=*/true,
+        c10::nullopt));
+  }
+
   // ---- Factories: copy from host memory (safe) -------------------------------
 
   // ---------- Host array constructors (handy in doctests) ----------

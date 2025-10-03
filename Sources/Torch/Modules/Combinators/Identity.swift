@@ -3,7 +3,6 @@
 // WHY: Useful “no‑op” building block when conditionally composing graphs,
 // and as the neutral element for `Sequential` chains.
 
-// Sources/Torch/Modules/Combinators/Identity.swift
 import _Differentiation
 
 public struct Identity: Layer {

@@ -18,7 +18,7 @@ let package = Package(
             cxxSettings: [
                 .unsafeFlags([
                     "-I",
-                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-08-18-a.xctoolchain/usr/lib/swift",
+                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/lib/swift",
                 ]),
                 .unsafeFlags(["-I", "/Users/pedro/programming/pytorch/install/include"]),
                 .unsafeFlags([
@@ -33,7 +33,7 @@ let package = Package(
             cxxSettings: [
                 .unsafeFlags([
                     "-I",
-                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-08-18-a.xctoolchain/usr/include",
+                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
                 ]),
                 .unsafeFlags(["-I", "/Users/pedro/programming/pytorch/install/include"]),
                 .unsafeFlags([
@@ -63,7 +63,7 @@ let package = Package(
                 .interoperabilityMode(.Cxx),
                 .unsafeFlags([
                     "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-08-18-a.xctoolchain/usr/include",
+                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
                 ]),
                 .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
                 // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
@@ -84,7 +84,7 @@ let package = Package(
                 .interoperabilityMode(.Cxx),
                 .unsafeFlags([
                     "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-08-18-a.xctoolchain/usr/include",
+                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
                 ]),
                 //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
                 .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
@@ -115,7 +115,7 @@ let package = Package(
                 .interoperabilityMode(.Cxx),
                 .unsafeFlags([
                     "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-08-18-a.xctoolchain/usr/include",
+                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
                 ]),
                 //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
                 .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
