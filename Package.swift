@@ -58,7 +58,10 @@ let package = Package(
         .target(
             name: "Torch",
             dependencies: ["ATenCXX"],
-            exclude: ["ATen/Core/Tensor/readme.md"],
+            exclude: [
+                "ATen/Core/Tensor/readme.md",
+                "Modules/Layers/readme.md",
+            ],
             swiftSettings: [
                 .interoperabilityMode(.Cxx),
                 .unsafeFlags([
