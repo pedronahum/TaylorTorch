@@ -45,6 +45,19 @@ public extension Tensor {
     }
   }
 
+  /// Create a tensor from a Swift array while explicitly choosing the dtype.
+  init<T: TorchTensorScalar>(
+    array: [T],
+    shape: [Int],
+    dtype: DType,
+    device: Device = .cpu
+  ) {
+    self.init(array: array, shape: shape, device: device)
+    if let current = self.dtype, current != dtype {
+      self = self.to(dtype: dtype)
+    }
+  }
+
   /// Copy tensor contents into a Swift array of the requested element type.
   /// If the tensor's dtype or device differ, data are converted and moved on the C++ side.
   /// - Parameter type: Element type for the resulting array (defaults to `T`).

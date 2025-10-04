@@ -106,10 +106,10 @@ public struct Conv2D: Layer {
   }
 
   @differentiable(reverse) private func _nhwcToNchw(_ t: Tensor) -> Tensor {
-    t.transposed(1, 3).transposed(2, 3)
+    t.permuted([0, 3, 1, 2])
   }
   @differentiable(reverse) private func _nchwToNhwc(_ t: Tensor) -> Tensor {
-    t.transposed(2, 3).transposed(1, 3)
+    t.permuted([0, 2, 3, 1])
   }
 
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
@@ -129,5 +129,48 @@ public struct Conv2D: Layer {
     public static func - (l: TangentVector, r: TangentVector) -> TangentVector {
       .init(weight: l.weight - r.weight, bias: l.bias - r.bias)
     }
+  }
+}
+
+public extension Conv2D {
+  /// Builds a `Conv2D` layer with Kaiming/He-uniform initialization, matching PyTorch.
+  static func kaimingUniform(
+    inC: Int,
+    outC: Int,
+    kH: Int,
+    kW: Int,
+    stride: (Int, Int) = (1, 1),
+    padding: Padding = .valid,
+    dilation: (Int, Int) = (1, 1),
+    groups: Int = 1,
+    dtype: DType = .float32,
+    device: Device = .cpu,
+    dataFormat: DataFormat = .nchw
+  ) -> Conv2D {
+    precondition(groups > 0, "groups must be positive")
+    precondition(inC % groups == 0, "inC must be divisible by groups")
+    let channelsPerGroup = inC / groups
+    let fanIn = channelsPerGroup * kH * kW
+    precondition(fanIn > 0, "fanIn must be positive")
+
+    let bound = Foundation.sqrt(6.0 / Double(fanIn))
+    let weight = Tensor.uniform(
+      low: -bound,
+      high: bound,
+      shape: [outC, channelsPerGroup, kH, kW],
+      dtype: dtype,
+      device: device
+    )
+    let biasTensor = Tensor.zeros(shape: [outC], dtype: dtype, device: device)
+
+    return Conv2D(
+      weight: weight,
+      bias: biasTensor,
+      stride: stride,
+      padding: padding,
+      dilation: dilation,
+      groups: groups,
+      dataFormat: dataFormat
+    )
   }
 }

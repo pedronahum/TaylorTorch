@@ -115,3 +115,60 @@ extension Tensor {
     )
   }
 }
+
+// Custom derivatives for pooling live alongside the primals to avoid duplicate symbols.
+extension Tensor {
+  @derivative(of: maxPool2d, wrt: self)
+  @usableFromInline
+  internal func _vjpMaxPool2d(
+    kernelSize: [Int64],
+    stride: [Int64],
+    padding: [Int64],
+    dilation: [Int64],
+    ceilMode: Bool
+  ) -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let (output, indices) = _maxPool2dWithIndices(
+      kernelSize: kernelSize, stride: stride, padding: padding, dilation: dilation,
+      ceilMode: ceilMode
+    )
+    return (
+      output,
+      { upstream in
+        self._maxPool2dBackward(
+          upstream: upstream,
+          kernelSize: kernelSize,
+          stride: stride,
+          padding: padding,
+          dilation: dilation,
+          ceilMode: ceilMode,
+          indices: indices
+        )
+      }
+    )
+  }
+
+  @derivative(of: avgPool2d, wrt: self)
+  @usableFromInline
+  internal func _vjpAvgPool2d(
+    kernelSize: [Int64],
+    stride: [Int64],
+    padding: [Int64],
+    ceilMode: Bool
+  ) -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let output = avgPool2d(
+      kernelSize: kernelSize, stride: stride, padding: padding, ceilMode: ceilMode
+    )
+    return (
+      output,
+      { upstream in
+        self._avgPool2dBackward(
+          upstream: upstream,
+          kernelSize: kernelSize,
+          stride: stride,
+          padding: padding,
+          ceilMode: ceilMode
+        )
+      }
+    )
+  }
+}

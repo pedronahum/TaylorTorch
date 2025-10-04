@@ -55,6 +55,14 @@ extension Tensor {
     // ✅ Back to using the property
     self._impl = TTSTensor.fromScalar(scalar._cxxScalar, T.torchDType._c10, device._c10)
   }
+
+  /// Creates a scalar tensor with the requested dtype rather than the scalar's default.
+  public init<T: TorchArithmetic>(_ scalar: T, dtype: DType, device: Device = .cpu) {
+    self.init(scalar, device: device)
+    if let current = self.dtype, current != dtype {
+      self = self.to(dtype: dtype)
+    }
+  }
 }
 
 extension Tensor {

@@ -36,10 +36,11 @@ static inline TTSTensor _conv2d(
   const int64_t* padding, intptr_t padding_len,
   const int64_t* dilation, intptr_t dilation_len,
   int64_t groups){
+  std::vector<int64_t> output_padding(static_cast<size_t>(stride_len), 0);
   auto y = at::convolution(
       input._t(), weight._t(), (bias ? bias->_t() : at::Tensor{}),
       mk(stride, stride_len), mk(padding, padding_len), mk(dilation, dilation_len),
-      false, {}, static_cast<long>(groups));
+      false, at::IntArrayRef(output_padding), static_cast<long>(groups));
   return TTSTensor(y);
 }
 
@@ -60,11 +61,13 @@ static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _conv2d_backward(
   const int64_t out_channels = weight._t().size(0);
   std::array<int64_t, 1> bias_sizes_arr{{out_channels}};
   at::IntArrayRef bias_sizes_ref(bias_sizes_arr);
+  const at::Tensor bias = at::empty({out_channels}, weight._t().options());
+  std::vector<int64_t> output_padding(static_cast<size_t>(stride_len), 0);
 
   auto tup = at::convolution_backward(
       grad_out._t(), input._t(), weight._t(), bias_sizes_ref,
       mk(stride, stride_len), mk(padding, padding_len), mk(dilation, dilation_len),
-      false, at::IntArrayRef{}, static_cast<long>(groups), output_mask);
+      false, at::IntArrayRef(output_padding), static_cast<long>(groups), output_mask);
 
   return {
     TTSTensor(std::get<0>(tup)),
@@ -145,7 +148,7 @@ static inline TTSTensor _conv2d_backward_get2(const std::tuple<TTSTensor,TTSTens
                                     at::IntArrayRef(stride, stride_len),
                                     at::IntArrayRef(padding, padding_len),
                                     ceil_mode,
-                                    /*count_include_pad=*/true, // PyTorch default
+                                    /*count_include_pad=*/false,
                                     c10::nullopt));
   }
 
@@ -163,7 +166,7 @@ static inline TTSTensor _conv2d_backward_get2(const std::tuple<TTSTensor,TTSTens
         at::IntArrayRef(stride, stride_len),
         at::IntArrayRef(padding, padding_len),
         ceil_mode,
-        /*count_include_pad=*/true,
+        /*count_include_pad=*/false,
         c10::nullopt));
   }
 

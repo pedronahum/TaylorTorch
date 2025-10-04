@@ -16,10 +16,9 @@ func conv2d_depthwise_identity_nchw() throws {
 
   var layer = Conv2D.kaimingUniform(
     inC: C, outC: C, kH: 1, kW: 1, groups: C, dtype: .float64, dataFormat: .nchw)
-  // Make it an exact identity: w[c, 0, 0, 0] = 1, b = 0
-  layer.weight = Tensor.zeros(shape: [C, 1, 1, 1], dtype: .float64)
+  // Make it an exact identity: weight entries = 1, bias = 0.
+  layer.weight = Tensor(array: Array(repeating: 1.0, count: C), shape: [C, 1, 1, 1], dtype: .float64)
   layer.bias = Tensor.zeros(shape: [C], dtype: .float64)
-  for c in 0..<C { layer.weight[Tensor.int64(c), 0, 0, 0] = Tensor(1.0) }
 
   let y = layer(x)
   #expect(y.isClose(to: x, rtol: 0, atol: 0, equalNan: false))
@@ -76,6 +75,69 @@ func conv2d_gradients_1x1_single_channel() throws {
   #expect(g.bias.isClose(to: expectedDb, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
+@Test("Conv2D: simple valid convolution without bias matches manual result")
+func conv2d_simple_valid() throws {
+  let x = Tensor.arange(Double(0), to: Double(16), step: 1, dtype: .float64).reshaped([1, 1, 4, 4])
+  let weight = Tensor(array: [1.0, 2.0, 3.0, 4.0], shape: [1, 1, 2, 2], dtype: .float64)
+  let bias = Tensor.zeros(shape: [1], dtype: .float64)
+
+  var layer = Conv2D(
+    weight: weight,
+    bias: bias,
+    stride: (1, 1),
+    padding: .valid,
+    dilation: (1, 1),
+    groups: 1,
+    dataFormat: .nchw
+  )
+
+  let y = layer(x)
+  let expected = Tensor(
+    array: [
+      34.0, 44.0, 54.0,
+      74.0, 84.0, 94.0,
+      114.0, 124.0, 134.0,
+    ],
+    shape: [1, 1, 3, 3],
+    dtype: .float64)
+
+  #expect(y.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
+@Test("Conv2D: backward gradients match manual convolution example")
+func conv2d_backward_manual() throws {
+  let x = Tensor(array: [1.0, 2.0, 3.0, 4.0], shape: [1, 1, 2, 2], dtype: .float64)
+
+  var layer = Conv2D(
+    weight: Tensor(array: [2.0], shape: [1, 1, 1, 1], dtype: .float64),
+    bias: Tensor(array: [0.5], shape: [1], dtype: .float64),
+    stride: (1, 1),
+    padding: .valid,
+    dilation: (1, 1),
+    groups: 1,
+    dataFormat: .nchw
+  )
+
+  let (_, pb) = valueWithPullback(at: x, layer) { x, layer in
+    layer(x).sum()
+  }
+  let (gradInput, gradLayer) = pb(Tensor(1.0, dtype: .float64))
+
+  let expectedInput = Tensor(
+    array: [
+      2.0, 2.0,
+      2.0, 2.0,
+    ],
+    shape: [1, 1, 2, 2],
+    dtype: .float64)
+  let expectedWeight = Tensor(array: [10.0], shape: [1, 1, 1, 1], dtype: .float64)
+  let expectedBias = Tensor(array: [4.0], shape: [1], dtype: .float64)
+
+  #expect(gradInput.isClose(to: expectedInput, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(gradLayer.weight.isClose(to: expectedWeight, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(gradLayer.bias.isClose(to: expectedBias, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
 // --- 4) NHWC compatibility path mirrors NCHW ---
 
 @Test("Conv2D: NHWC path equals NCHW (1x1 depthwise)")
@@ -86,7 +148,7 @@ func conv2d_nhwc_equals_nchw() throws {
   let W = 3
   let xNCHW = Tensor.arange(Double(0), to: Double(N * C * H * W), step: 1, dtype: .float64)
     .reshaped([N, C, H, W])
-  let xNHWC = xNCHW.transposed(2, 3).transposed(1, 3)  // N C H W -> N H W C
+  let xNHWC = xNCHW.permuted([0, 2, 3, 1])  // N C H W -> N H W C
 
   var layerNCHW = Conv2D.kaimingUniform(
     inC: C, outC: C, kH: 1, kW: 1, groups: C, dtype: .float64, dataFormat: .nchw)
@@ -101,8 +163,9 @@ func conv2d_nhwc_equals_nchw() throws {
 
   let yNCHW = layerNCHW(xNCHW)  // [N,C,H,W]
   let yNHWC = layerNHWC(xNHWC)  // [N,H,W,C]
-  let yNHWC_to_NCHW = yNHWC.transposed(2, 3).transposed(1, 3)
+  let yNHWC_to_NCHW = yNHWC.permuted([0, 3, 1, 2])
 
+  #expect(xNHWC.permuted([0, 3, 1, 2]).isClose(to: xNCHW, rtol: 1e-12, atol: 1e-12, equalNan: false))
   #expect(yNHWC_to_NCHW.isClose(to: yNCHW, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
@@ -125,12 +188,60 @@ func maxpool2d_simple() throws {
   #expect(y.isClose(to: expected, rtol: 0, atol: 0, equalNan: false))
 }
 
+@Test("MaxPool2D: NHWC path equals NCHW")
+func maxpool2d_nhwc_parity() throws {
+  let xNCHW = Tensor.arange(Double(0), to: Double(16), step: 1, dtype: .float64).reshaped([1, 1, 4, 4])
+  let xNHWC = xNCHW.permuted([0, 2, 3, 1])
+
+  let poolNCHW = MaxPool2D(kernel: (2, 2), dataFormat: .nchw)
+  var poolNHWC = poolNCHW
+  poolNHWC.dataFormat = .nhwc
+
+  let yNCHW = poolNCHW(xNCHW)
+  let yNHWC = poolNHWC(xNHWC)
+
+  #expect(yNHWC.permuted([0, 3, 1, 2]).isClose(to: yNCHW, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
+@Test("AvgPool2D: simple 2x2 stride-2 pooling (NCHW)")
+func avgpool2d_simple() throws {
+  // Mirror the doctest: averaging each 2x2 block of a 4x4 tensor.
+  let x = Tensor.arange(Double(0), to: Double(16), step: 1, dtype: .float64).reshaped([1, 1, 4, 4])
+  let pool = AvgPool2D(kernel: (2, 2), dataFormat: .nchw)
+
+  let y = pool(x)
+  let expected = Tensor(
+    array: [2.5, 4.5, 10.5, 12.5],
+    shape: [1, 1, 2, 2],
+    dtype: .float64)
+
+  #expect(y.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
+@Test("AvgPool2D: padding excluded from denominator by default")
+func avgpool2d_padding_excludes_padded_elements() throws {
+  let x = Tensor(array: [1.0, 2.0, 3.0, 4.0], shape: [1, 1, 2, 2], dtype: .float64)
+  let pool = AvgPool2D(kernel: (2, 2), stride: (1, 1), padding: (1, 1), dataFormat: .nchw)
+
+  let y = pool(x)
+  let expected = Tensor(
+    array: [
+      1.0, 1.5, 2.0,
+      2.0, 2.5, 3.0,
+      3.0, 3.5, 4.0,
+    ],
+    shape: [1, 1, 3, 3],
+    dtype: .float64)
+
+  #expect(y.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
 @Test("AvgPool2D: simple 2x2 stride-2 pooling (NHWC parity)")
 func avgpool2d_nhwc_parity() throws {
   let xNCHW = Tensor.arange(Double(0), to: Double(16), step: 1, dtype: .float64).reshaped([
     1, 1, 4, 4,
   ])
-  let xNHWC = xNCHW.transposed(2, 3).transposed(1, 3)
+  let xNHWC = xNCHW.permuted([0, 2, 3, 1])
 
   let pNCHW = AvgPool2D(kernel: (2, 2), dataFormat: .nchw)
   var pNHWC = pNCHW
@@ -139,6 +250,6 @@ func avgpool2d_nhwc_parity() throws {
   let yNCHW = pNCHW(xNCHW)
   let yNHWC = pNHWC(xNHWC)
   #expect(
-    yNHWC.transposed(2, 3).transposed(1, 3).isClose(
+    yNHWC.permuted([0, 3, 1, 2]).isClose(
       to: yNCHW, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
