@@ -3,6 +3,7 @@
 #include <vector>
 #include <utility>
 #include <ATen/ops/where.h>
+#include <ATen/ops/group_norm.h>
 #include <ATen/ops/allclose.h>
 
 #include <swift/bridging>
@@ -76,6 +77,93 @@ static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _conv2d_backward(
   };
 }
 
+
+// GroupNorm via ATen (autograd aware)
+static inline TTSTensor _group_norm(
+  const TTSTensor& input,
+  int64_t numGroups,
+  const TTSTensor* weight,
+  const TTSTensor* bias,
+  double epsilon)
+{
+  c10::optional<at::Tensor> weightOpt = weight ? c10::optional<at::Tensor>(weight->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> biasOpt = bias ? c10::optional<at::Tensor>(bias->_t()) : c10::nullopt;
+  auto y = at::group_norm(
+    input._t(),
+    numGroups,
+    weightOpt,
+    biasOpt,
+    epsilon,
+    /*cudnn_enabled=*/false);
+  return TTSTensor(y);
+}
+
+// GroupNorm forward/backward via ATen (autograd aware)
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _native_group_norm_forward(
+  const TTSTensor& input,
+  int64_t numGroups,
+  const TTSTensor* weight,
+  const TTSTensor* bias,
+  double epsilon)
+{
+  c10::optional<at::Tensor> weightOpt = weight ? c10::optional<at::Tensor>(weight->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> biasOpt = bias ? c10::optional<at::Tensor>(bias->_t()) : c10::nullopt;
+  auto N = input._t().size(0);
+  auto C = input._t().size(1);
+  auto HxW = input._t().numel() / (N * C);
+  auto result = at::native::native_group_norm(
+    input._t(),
+    weightOpt,
+    biasOpt,
+    N,
+    C,
+    HxW,
+    numGroups,
+    epsilon);
+  return {
+    TTSTensor(std::get<0>(result)),
+    TTSTensor(std::get<1>(result)),
+    TTSTensor(std::get<2>(result))
+  };
+}
+
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _native_group_norm_backward(
+  const TTSTensor& grad_out,
+  const TTSTensor& input,
+  const TTSTensor& mean,
+  const TTSTensor& rstd,
+  int64_t numGroups,
+  const TTSTensor* weight)
+{
+  c10::optional<at::Tensor> weightOpt = weight ? c10::optional<at::Tensor>(weight->_t()) : c10::nullopt;
+  auto N = input._t().size(0);
+  auto C = input._t().size(1);
+  auto HxW = input._t().numel() / (N * C);
+  std::array<bool,3> mask{{true, true, true}};
+  auto result = at::native::native_group_norm_backward(
+    grad_out._t(),
+    input._t(),
+    mean._t(),
+    rstd._t(),
+    weightOpt,
+    N,
+    C,
+    HxW,
+    numGroups,
+    mask);
+  return {
+    TTSTensor(std::get<0>(result)),
+    TTSTensor(std::get<1>(result)),
+    TTSTensor(std::get<2>(result))
+  };
+}
+
+static inline TTSTensor _native_group_norm_forward_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _native_group_norm_forward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
+static inline TTSTensor _native_group_norm_forward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
+static inline TTSTensor _native_group_norm_backward_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _native_group_norm_backward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
+static inline TTSTensor _native_group_norm_backward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
 
 // --- Tiny getters so Swift doesn’t need std::get ----------
 // --- tuple getters (so Swift doesn’t need std.get)

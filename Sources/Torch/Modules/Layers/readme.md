@@ -31,6 +31,7 @@ let predictions = block(normalized, context: ctx)
 - `DataFormat.swift` – Shared enum describing tensor memory layouts (`.nchw`, `.nhwc`) used by convolution, pooling, and normalization layers for consistent layout transforms.
 - `Dense.swift` – Wraps a `Linear` layer with a differentiable activation closure. Provides convenience initialisers (including Glorot) and an `Activations` namespace with common differentiable functions.
 - `Dropout.swift` – Inverted-dropout layer that samples masks during training, scales survivors by `1 / (1 - rate)`, and becomes the identity for inference. Accepts an optional deterministic mask factory for testing.
+- `LayerNorm.swift` – Stateless normalization across the trailing dimensions with affine `gamma`/`beta` parameters and a custom reverse-mode derivative that handles broadcasting while keeping the contextual call identical to the pure forward.
 - `Linear.swift` – Core fully connected layer exposing matrix multiplication plus bias. Serves as the building block for `Dense`, `Sequential`, and custom modules.
 - `Pooling.swift` – Contains `MaxPool2D` and `AvgPool2D` layers with stride, padding, dilation, ceil-mode, and layout control. Handles NHWC inputs by permuting to the NCHW kernels exposed by ATen.
 - `Sequential.swift` – Generic two-layer composition that preserves parameter traversal and differentiability, making it easy to chain smaller layers into blocks.
@@ -38,7 +39,7 @@ let predictions = block(normalized, context: ctx)
 
 ## Patterns to keep in mind
 
-- Layers that mutate internal state (BatchNorm) wrap that state in `_TensorBox` so mutations stay outside Swift’s value semantics while remaining differentiable where appropriate.
+- Layers that mutate internal state (BatchNorm) wrap that state in `_TensorBox` so mutations stay outside Swift’s value semantics while remaining differentiable where appropriate. Stateless layers such as LayerNorm still provide custom pullbacks so gradient math stays stable even with broadcasting.
 - If a layer supports both pure and contextual calls, prefer `layer(x, context: ctx)` during training and `layer(x)` for inference to avoid unnecessary state updates.
 - All layers expose parameter key-paths via `ParameterIterable`, so optimizers supplied elsewhere in TaylorTorch can traverse and update weights without extra boilerplate.
 
