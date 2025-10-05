@@ -42,6 +42,7 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+MultiAxisSubscript.swift`** – `TensorIndex` enum and variadic subscript supporting integers, ranges, ellipsis, and new axes for NumPy-style slicing.
 - **`Tensor+Join.swift`** – Concatenate (`cat`) and stack (`stack`) utilities.
 - **`Tensor+Indexing+Differentiable.swift`** – Reverse-mode derivatives for `select`, `narrow`, and `slice`, ensuring gradients scatter back into the source tensor (`TensorIndexingDifferentiationTests`).
+- **`Tensor+Scatter.swift`** – Scatter-style writes (`scatterAdd`, `indexAdd`) that accumulate values into existing tensors.
 
 ## Math, Logic, and Operators
 - **`Tensor+Math.swift`** – Unary transforms, tensor/scalar binary ops, reductions (`sum`, `mean`, etc.), linear algebra (`matmul`, `dot`), and comparison helpers.
@@ -50,6 +51,11 @@ Every public-facing symbol now carries Swift documentation comments so Xcode and
 - **`Tensor+Operators.swift`** – Conventional arithmetic operators (`+`, `-`, `*`, `/`) and compound assignments for tensor–tensor or tensor–scalar combinations.
 - **`Tensor+ComparisonOperators.swift`** – Custom `.==`, `.<`, `.<=`, `.>`, `.>=` operators that keep element-wise semantics without clashing with Swift numerics.
 - **`Tensor+Equatable.swift`** – `Equatable` conformance and `isClose` for tolerance-based equality checks.
+- **`Tensor+Math+Functional.swift`** / **`Tensor+Reduce+Functional.swift`** – Top-level functional wrappers (`sum(_:)`, `mean(_:)`, `pow(_:_:)`, etc.) that mirror PyTorch’s namespace style while delegating to the instance methods above.
+
+## Neural-network kernels
+- **`Tensor+NN.swift`** – Low-level wrappers for convolution and pooling (`conv2d`, `maxPool2d`, `avgPool2d`) that surface ATen’s spatial ops to Swift.
+- **`Tensor+NN+Differentiable.swift`** – Reverse-mode derivatives for those kernels, yielding gradients for inputs, weights, and biases without relying on libtorch autograd.
 
 ## Differentiation Support
 - **`Tensor+Differentiation.swift`** – Declares the `Differentiable` conformance, tangent zero value helpers, and `move(by:)` so tensors participate in Swift AD flows (exercised by `TensorMathDifferentiationTests`).

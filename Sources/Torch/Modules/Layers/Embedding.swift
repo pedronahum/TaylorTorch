@@ -65,7 +65,26 @@ public struct Embedding: Layer {
     }
   ) {
     self.weight = initializer(numEmbeddings, embeddingDim)
+    if self.weight.dtype == nil {
+      self.weight = self.weight.to(dtype: .float32)
+    }
     self.paddingIndex = paddingIndex
+  }
+
+  /// Convenience: zeros init with dtype/device.
+  public init(
+    numEmbeddings: Int,
+    embeddingDim: Int,
+    paddingIndex: Int? = nil,
+    dtype: DType = .float32,
+    device: Device = .cpu
+  ) {
+    self.init(
+      numEmbeddings: numEmbeddings,
+      embeddingDim: embeddingDim,
+      paddingIndex: paddingIndex,
+      initializer: { n, d in Tensor.zeros(shape: [n, d], dtype: dtype, device: device) }
+    )
   }
 
   /// Forward: gather rows for every index (works with any-rank index tensors).
