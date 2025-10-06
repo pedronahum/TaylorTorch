@@ -335,20 +335,20 @@ private func oneHot(
   onValue: Float = 1.0,
   offValue: Float = 0.0
 ) -> Tensor {
-  // This implementation assumes your library has these standard functions.
-  let shape = withoutDerivative(at: indices.shape)
-  let rank = withoutDerivative(at: indices.rank)
+  let device = withoutDerivative(at: indices.device)
+  let intIndices = withoutDerivative(at: indices.to(dtype: .int64))
+  let rank = withoutDerivative(at: intIndices.rank)
 
-  // Create the base tensor with the 'off' value.
-  var oneHotShape = shape
-  oneHotShape.insert(depth, at: rank)
-  let base = Tensor(array: [offValue], shape: oneHotShape)
+  var depthShape = [Int](repeating: 1, count: rank)
+  depthShape.append(depth)
 
-  // Create the update values.
-  let updates = Tensor(array: [onValue], shape: shape)
+  let classIndices = withoutDerivative(
+    at: Tensor.arange(Int64(0), to: Int64(depth), step: Int64(1), dtype: .int64, device: device)
+      .reshaped(depthShape))
+  let expandedIndices = withoutDerivative(at: intIndices.unsqueezed(dim: rank))
+  let mask = expandedIndices.eq(classIndices)
 
-  // Scatter the 'on' values into the correct locations.
-
-  let oneHotIndices = withoutDerivative(at: indices.unsqueezed(dim: rank).to(dtype: .int64))
-  return base.scatterAdd(dim: rank, index: oneHotIndices, source: updates)
+  let onTensor = Tensor(onValue, dtype: .float32, device: device)
+  let offTensor = Tensor(offValue, dtype: .float32, device: device)
+  return TorchWhere.select(condition: mask, onTensor, offTensor)
 }

@@ -114,7 +114,9 @@ extension Tensor {
 
   /// Returns the element-wise sum of `self` and `other`, scaling `other` by `alpha`.
   public func adding(_ other: Tensor, alpha: Scalar = .int64(1)) -> Tensor {
-    Tensor(_impl.add(other._impl, alpha._cxxScalar))
+    if self.count == 0 { return other }
+    if other.count == 0 { return self }
+    return Tensor(_impl.add(other._impl, alpha._cxxScalar))
   }
 
   // Before:
