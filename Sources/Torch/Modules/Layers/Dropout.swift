@@ -1,5 +1,5 @@
-// Sources/Torch/Modules/Layers/Dropout.swift
-//
+import _Differentiation
+
 // Dropout (inverted): randomly zeroes a fraction `rate` of inputs during training,
 // scales survivors by 1/(1 - rate). Inference path is a no-op.
 //
@@ -13,8 +13,7 @@
 // Layer protocol & ForwardContext in this repo.
 // (Citations placed in the PR description / discussion.)
 
-import _Differentiation
-
+/// Inverted dropout layer that zeroes activations with probability `rate` during training.
 public struct Dropout: Layer {
   /// Probability of dropping (zeroing) a unit. `rate ∈ [0, 1]`.
   @noDerivative public var rate: Double
@@ -23,6 +22,10 @@ public struct Dropout: Layer {
   /// Must return a Bool tensor with the same shape as the input.
   @noDerivative public var maskFactory: ((Tensor) -> Tensor)?
 
+  /// Creates an inverted-dropout layer.
+  /// - Parameters:
+  ///   - rate: Probability of setting each activation to zero.
+  ///   - maskFactory: Optional closure that produces a deterministic mask for tests.
   public init(rate: Double, maskFactory: ((Tensor) -> Tensor)? = nil) {
     precondition(rate >= 0 && rate <= 1, "Dropout rate must be in [0, 1].")
     self.rate = rate
@@ -30,11 +33,19 @@ public struct Dropout: Layer {
   }
 
   // Inference: default to identity so `model(x)` is eval‑safe.
+  /// Returns `x` unchanged when invoked without a training context.
+  /// - Parameter x: Input activations.
+  /// - Returns: The unmodified input tensor.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor { x }
 
   // Training/inference behavior controlled by ForwardContext.
-  @differentiable(reverse, wrt: x)
+  /// Applies dropout when `context.training` is `true`.
+  /// - Parameters:
+  ///   - x: Input activations.
+  ///   - context: Forward context that gates training mode.
+  /// - Returns: Activations with elements zeroed according to the dropout mask.
+  @differentiable(reverse,wrt: x)
   public func call(_ x: Tensor, context: ForwardContext) -> Tensor {
     guard context.training else { return x }
     if rate <= 0 { return x }
@@ -69,14 +80,22 @@ public struct Dropout: Layer {
   }
 
   // No trainable parameters.
+  /// Dropout has no trainable parameters, so applying `offset` is a no-op.
   public mutating func move(by offset: TangentVector) {}
+  /// Dropout exposes no trainable tensors.
   public static var parameterKeyPaths: [WritableKeyPath<Dropout, Tensor>] { [] }
 
+  /// Tangent representation for `Dropout`, which is always empty.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Creates an empty tangent vector.
     public init() {}
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init() }
+    /// Adds two tangent vectors. No-op because there are no parameters.
     public static func + (lhs: TangentVector, rhs: TangentVector) -> TangentVector { .init() }
+    /// Subtracts two tangent vectors. No-op because there are no parameters.
     public static func - (lhs: TangentVector, rhs: TangentVector) -> TangentVector { .init() }
+    /// No parameter key paths are exposed.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
   }
 }

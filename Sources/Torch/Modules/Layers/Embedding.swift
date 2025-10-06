@@ -88,6 +88,8 @@ public struct Embedding: Layer {
   }
 
   /// Forward: gather rows for every index (works with any-rank index tensors).
+  /// - Parameter indices: Integer tensor whose values index into the embedding table.
+  /// - Returns: A tensor containing embeddings corresponding to each index.
   @differentiable(reverse)
   public func callAsFunction(_ indices: @noDerivative Tensor) -> Tensor {
     let idx = prepareIndices(indices)
@@ -100,15 +102,25 @@ public struct Embedding: Layer {
     return rows.reshaped(outShape)
   }
 
+  /// Contextual forward that honours the `Layer` protocol's `ForwardContext`.
+  /// - Parameters:
+  ///   - input: Integer tensor containing the indices to embed.
+  ///   - context: Forward-context value. Drop-in replacement for `callAsFunction`.
+  /// - Returns: A tensor containing embeddings corresponding to each index.
   @differentiable(reverse)
   public func call(_ input: @noDerivative Tensor, context: ForwardContext) -> Tensor {
     callAsFunction(input)
   }
 
+  /// Applies the tangent `offset` to the embedding weights.
+  /// - Parameter offset: Tangent information propagated from differentiation.
   public mutating func move(by offset: TangentVector) {
     weight.move(by: offset.weight)
   }
 
+  /// Normalizes the index tensor by enforcing dtype/device compatibility.
+  /// - Parameter indices: Raw integer tensor provided by the caller.
+  /// - Returns: An `int64` tensor located on the same device as the embedding weights.
   private func prepareIndices(_ indices: Tensor) -> Tensor {
     var idx = withoutDerivative(at: indices.to(dtype: .int64))
     if idx.device != weight.device {
@@ -120,22 +132,30 @@ public struct Embedding: Layer {
 
 extension Embedding {
   // MARK: - ParameterIterableModel conformance
+  /// Writable key paths for the embedding layer's trainable tensors.
   public static var parameterKeyPaths: [WritableKeyPath<Embedding, Tensor>] { [\Embedding.weight] }
 
   // MARK: - TangentVector: parameter-wise operations for optimizers
+  /// Tangent representation for `Embedding`.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Tangent for the embedding weights.
     public var weight: Tensor
 
+    /// Creates a tangent vector with the provided weight component.
     public init(weight: Tensor) { self.weight = weight }
 
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init(weight: .zero) }
+    /// Adds two tangent vectors element-wise.
     public static func + (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
       .init(weight: lhs.weight.adding(rhs.weight))
     }
+    /// Subtracts two tangent vectors element-wise.
     public static func - (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
       .init(weight: lhs.weight.subtracting(rhs.weight))
     }
 
+    /// Writable key paths for the tangent components.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [\Self.weight] }
   }
 }
@@ -143,6 +163,9 @@ extension Embedding {
 // MARK: - Custom VJP to (1) scatter-add gradients, (2) zero out paddingIndex row.
 
 extension Embedding {
+  /// Custom VJP that scatters gradients and optionally zeros the padding index.
+  /// - Parameter indices: Integer tensor that selects embedding rows.
+  /// - Returns: The embedded values and a pullback that accumulates gradients onto the weight matrix.
   @derivative(of: callAsFunction, wrt: self)
   public func _vjpCallAsFunction(_ indices: Tensor)
     -> (value: Tensor, pullback: (Tensor) -> TangentVector)

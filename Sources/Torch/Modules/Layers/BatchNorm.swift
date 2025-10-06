@@ -13,26 +13,44 @@
 import _Differentiation
 
 // Small reference wrapper to allow in-place state updates from a non-mutating call.
+/// A mutable reference wrapper around a tensor used for stateful statistics.
 public final class _TensorBox {
+  /// The wrapped tensor value.
   public var value: Tensor
+  /// Creates a tensor box that holds `value`.
+  /// - Parameter value: Initial tensor stored inside the box.
   public init(_ value: Tensor) { self.value = value }
 }
 
 // MARK: - BatchNorm1D  (expects [N, F] — features last)
 
+/// Batch normalization for rank-2 tensors in `[batch, feature]` layout.
 public struct BatchNorm1D: Layer {
   // Trainable affine params
+  /// Learnable per-feature scaling factors.
   public var weight: Tensor   // gamma [F]
+  /// Learnable per-feature offsets.
   public var bias: Tensor     // beta  [F]
 
   // Non-trainable running stats (per-feature)
+  /// Exponential moving average of feature means.
   @noDerivative public var runningMean: _TensorBox // [F]
+  /// Exponential moving average of feature variances.
   @noDerivative public var runningVar: _TensorBox  // [F]
 
   // Hyper-parameters
+  /// Momentum used to update the running statistics.
   @noDerivative public var momentum: Double   // smoothing factor (≈ PyTorch's 0.1)
+  /// Numerical stability constant added to the variance.
   @noDerivative public var epsilon: Double    // numerical stability (e.g. 1e-5)
 
+  /// Creates a batch-normalization layer for features stored in the last dimension.
+  /// - Parameters:
+  ///   - numFeatures: Number of feature channels to normalize.
+  ///   - momentum: Momentum factor applied when updating running statistics.
+  ///   - epsilon: Small constant added to variances to ensure stability.
+  ///   - dtype: Element type for parameters and running statistics.
+  ///   - device: Device on which to allocate tensors.
   public init(
     numFeatures: Int,
     momentum: Double = 0.1,
@@ -49,6 +67,9 @@ public struct BatchNorm1D: Layer {
   }
 
   // Inference path (pure): use running stats
+  /// Normalizes `x` using the stored running statistics (inference path).
+  /// - Parameter x: Input activations with shape `[batch, feature]`.
+  /// - Returns: Batch-normalized activations.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     let m = runningMean.value
@@ -58,6 +79,11 @@ public struct BatchNorm1D: Layer {
   }
 
   // Training/Eval path with context
+  /// Normalizes `x`, computing batch statistics when `context.training` is `true`.
+  /// - Parameters:
+  ///   - x: Input activations with shape `[batch, feature]`.
+  ///   - context: Forward-context gate that toggles between training and evaluation behavior.
+  /// - Returns: Batch-normalized activations.
   @differentiable(reverse, wrt: (self, x))
   public func call(_ x: Tensor, context: @noDerivative ForwardContext) -> Tensor {
     guard context.training else { return self(x) }
@@ -81,6 +107,15 @@ public struct BatchNorm1D: Layer {
   }
 
   // Shared compute
+  /// Performs the core batch-normalization computation.
+  /// - Parameters:
+  ///   - x: Input activations.
+  ///   - mean: Mean used for normalization.
+  ///   - variance: Variance used for normalization.
+  ///   - weight: Per-feature scaling factors.
+  ///   - bias: Per-feature offsets.
+  ///   - eps: Numerical stability constant.
+  /// - Returns: Batch-normalized activations.
   @differentiable(reverse)
   private func _batchNorm1D(
     _ x: Tensor, mean: Tensor, variance: Tensor, weight: Tensor, bias: Tensor, eps: Double
@@ -101,24 +136,39 @@ public struct BatchNorm1D: Layer {
   }
 
   // --- Layer plumbing ---
+  /// Updates the layer's parameters by applying the tangent `offset`.
+  /// - Parameter offset: Derivative information to apply to the parameters.
   public mutating func move(by offset: TangentVector) {
     weight.move(by: offset.weight)
     bias.move(by: offset.bias)
   }
+  /// Writable key paths for the layer's trainable parameters.
   public static var parameterKeyPaths: [WritableKeyPath<BatchNorm1D, Tensor>] {
     [\BatchNorm1D.weight, \BatchNorm1D.bias]
   }
+  /// Tangent representation for `BatchNorm1D` containing gradients for each parameter.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Tangent for the scaling factor.
     public var weight: Tensor
+    /// Tangent for the bias parameter.
     public var bias: Tensor
+    /// Writable key paths for the tangent vector's components.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [\.weight, \.bias] }
+    /// The additive identity for the tangent vector.
     public static var zero: TangentVector { .init(weight: .zero, bias: .zero) }
+    /// Adds two tangents element-wise.
     public static func + (l: Self, r: Self) -> Self { .init(weight: l.weight + r.weight, bias: l.bias + r.bias) }
+    /// Subtracts two tangents element-wise.
     public static func - (l: Self, r: Self) -> Self { .init(weight: l.weight - r.weight, bias: l.bias - r.bias) }
   }
 }
 
 extension BatchNorm1D {
+  /// Provides a custom VJP implementation that respects the training/eval switch.
+  /// - Parameters:
+  ///   - x: Input activations.
+  ///   - context: Forward-context gate controlling training behavior.
+  /// - Returns: The layer output and a pullback for the inputs and parameters.
   @usableFromInline
   @derivative(of: call(_:context:))
   func vjpCall(_ x: Tensor, context: @noDerivative ForwardContext)

@@ -11,14 +11,20 @@
 // References: Layer.swift (context), Sequential/Builder, Identity stateless pattern.
 import _Differentiation
 
+/// Reshapes tensors to a target shape while optionally inferring one dimension.
 public struct Reshape: Layer {
   /// Target shape specification; may contain at most one `-1` (infer).
   @noDerivative public var target: [Int]
 
+  /// Creates a reshape layer.
+  /// - Parameter target: Desired output shape with at most one inferred dimension (`-1`).
   public init(_ target: [Int]) {
     self.target = target
   }
 
+  /// Reshapes the input tensor to the target shape.
+  /// - Parameter x: Input tensor.
+  /// - Returns: Tensor with the new shape.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     let inShape = withoutDerivative(at: x.shape)
@@ -48,17 +54,28 @@ public struct Reshape: Layer {
     return x.reshaped(out)
   }
 
+  /// Contextual forward that proxies to `callAsFunction`.
+  /// - Parameters:
+  ///   - x: Input tensor.
+  ///   - context: Forward context (unused).
+  /// - Returns: Tensor with the new shape.
   @differentiable(reverse)
   public func call(_ x: Tensor, context: ForwardContext) -> Tensor {
     callAsFunction(x)
   }
 
   // --- Stateless parameter boilerplate ---
+  /// Reshape has no parameters, so applying `offset` is a no-op.
   public mutating func move(by offset: TangentVector) {}
+  /// Reshape exposes no trainable tensors.
   public static var parameterKeyPaths: [WritableKeyPath<Reshape, Tensor>] { [] }
+  /// Tangent representation for `Reshape`, which is always empty.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Creates an empty tangent vector.
     public init() {}
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init() }
+    /// No parameter key paths are exposed.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
   }
 }

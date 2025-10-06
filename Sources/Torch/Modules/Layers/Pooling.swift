@@ -12,6 +12,7 @@
 // Sources/Torch/Modules/Layers/Pooling.swift
 import _Differentiation
 
+/// Max pooling layer for rank-4 tensors.
 public struct MaxPool2D: Layer {
   @noDerivative public var kernel: (Int, Int)
   @noDerivative public var stride: (Int, Int)
@@ -20,6 +21,14 @@ public struct MaxPool2D: Layer {
   @noDerivative public var ceilMode: Bool
   @noDerivative public var dataFormat: DataFormat
 
+  /// Creates a 2D max-pooling layer.
+  /// - Parameters:
+  ///   - kernel: Spatial extent of the pooling window.
+  ///   - stride: Step between pooling windows. Defaults to `kernel`.
+  ///   - padding: Implicit zero padding applied to height and width.
+  ///   - dilation: Spacing inside the pooling window.
+  ///   - ceilMode: Whether to use ceil when computing the output size.
+  ///   - dataFormat: Input tensor layout.
   public init(
     kernel: (Int, Int),
     stride: (Int, Int)? = nil,
@@ -36,6 +45,9 @@ public struct MaxPool2D: Layer {
     self.dataFormat = dataFormat
   }
 
+  /// Applies max pooling to `x`.
+  /// - Parameter x: Input tensor.
+  /// - Returns: Tensor containing the pooled features.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     let (xNCHW, toOut) = _prep(x)
@@ -49,6 +61,9 @@ public struct MaxPool2D: Layer {
     return toOut(y)
   }
 
+  /// Normalizes layout and produces a closure to restore the original format.
+  /// - Parameter x: Input tensor.
+  /// - Returns: Tuple containing the NCHW tensor and a closure converting back to `dataFormat`.
   private func _prep(_ x: Tensor) -> (Tensor, @differentiable(reverse) (Tensor) -> Tensor) {
     switch dataFormat {
     case .nchw: return (x, { $0 })
@@ -61,16 +76,23 @@ public struct MaxPool2D: Layer {
   }
 
   // --- Boilerplate ---
+  /// MaxPool2D exposes no trainable tensors.
   public static var parameterKeyPaths: [WritableKeyPath<MaxPool2D, Tensor>] { [] }
+  /// Tangent representation for `MaxPool2D`, which is always empty.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Creates an empty tangent vector.
     public init() {}
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init() }
     // ✅ FIX: Added the missing property required by ParameterIterable.
+    /// No parameter key paths are exposed.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
   }
+  /// MaxPool2D has no parameters, so applying `offset` is a no-op.
   public mutating func move(by offset: TangentVector) {}
 }
 
+/// Average pooling layer for rank-4 tensors.
 public struct AvgPool2D: Layer {
   @noDerivative public var kernel: (Int, Int)
   @noDerivative public var stride: (Int, Int)
@@ -78,6 +100,13 @@ public struct AvgPool2D: Layer {
   @noDerivative public var ceilMode: Bool
   @noDerivative public var dataFormat: DataFormat
 
+  /// Creates a 2D average-pooling layer.
+  /// - Parameters:
+  ///   - kernel: Spatial extent of the pooling window.
+  ///   - stride: Step between pooling windows. Defaults to `kernel`.
+  ///   - padding: Implicit zero padding applied to height and width.
+  ///   - ceilMode: Whether to use ceil when computing the output size.
+  ///   - dataFormat: Input tensor layout.
   public init(
     kernel: (Int, Int),
     stride: (Int, Int)? = nil,
@@ -92,6 +121,9 @@ public struct AvgPool2D: Layer {
     self.dataFormat = dataFormat
   }
 
+  /// Applies average pooling to `x`.
+  /// - Parameter x: Input tensor.
+  /// - Returns: Tensor containing the pooled features.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     let (xNCHW, toOut) = _prep(x)
@@ -104,6 +136,9 @@ public struct AvgPool2D: Layer {
     return toOut(y)
   }
 
+  /// Normalizes layout and produces a closure to restore the original format.
+  /// - Parameter x: Input tensor.
+  /// - Returns: Tuple containing the NCHW tensor and a closure converting back to `dataFormat`.
   private func _prep(_ x: Tensor) -> (Tensor, @differentiable(reverse) (Tensor) -> Tensor) {
     switch dataFormat {
     case .nchw: return (x, { $0 })
@@ -116,12 +151,18 @@ public struct AvgPool2D: Layer {
   }
 
   // --- Boilerplate ---
+  /// AvgPool2D exposes no trainable tensors.
   public static var parameterKeyPaths: [WritableKeyPath<AvgPool2D, Tensor>] { [] }
+  /// Tangent representation for `AvgPool2D`, which is always empty.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Creates an empty tangent vector.
     public init() {}
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init() }
     // ✅ FIX: Added the missing property required by ParameterIterable.
+    /// No parameter key paths are exposed.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
   }
+  /// AvgPool2D has no parameters, so applying `offset` is a no-op.
   public mutating func move(by offset: TangentVector) {}
 }

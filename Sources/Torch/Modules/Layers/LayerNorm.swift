@@ -21,9 +21,12 @@
 
 import _Differentiation
 
+/// Layer normalization over the trailing `normalizedRank` axes.
 public struct LayerNorm: Layer {
   // Trainable parameters spanning the normalized trailing shape.
+  /// Learnable scaling factors broadcast across the normalized axes.
   public var gamma: Tensor
+  /// Learnable offsets broadcast across the normalized axes.
   public var beta: Tensor
 
   // How many *trailing* axes to normalize over (e.g., 1 = last axis).
@@ -35,6 +38,11 @@ public struct LayerNorm: Layer {
 
   /// Normalize across the last `normalizedRank` axes whose combined shape is `normalizedShape`.
   /// `gamma` and `beta` are initialized to ones/zeros with that trailing shape.
+  /// - Parameters:
+  ///   - normalizedShape: Shape of the trailing axes to normalize.
+  ///   - epsilon: Small constant added to the variance for stability.
+  ///   - dtype: Element dtype for the parameters.
+  ///   - device: Device on which to allocate the parameters.
   public init(
     normalizedShape: [Int],
     epsilon: Double = 1e-5,
@@ -49,6 +57,11 @@ public struct LayerNorm: Layer {
   }
 
   /// Convenience: normalize along the last axis (feature dimension).
+  /// - Parameters:
+  ///   - featureCount: Number of features on the final axis.
+  ///   - epsilon: Small constant added to the variance for stability.
+  ///   - dtype: Element dtype for the parameters.
+  ///   - device: Device on which to allocate the parameters.
   public init(
     featureCount: Int,
     epsilon: Double = 1e-5,
@@ -61,11 +74,16 @@ public struct LayerNorm: Layer {
   // MARK: - Forward
 
   /// y = ((x - μ) / sqrt(σ² + ε)) * γ + β
+  /// - Parameter x: Input activations.
+  /// - Returns: Normalized activations.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     _layerNormForward(x).value
   }
 
+  /// Performs the forward pass while storing intermediates for the backward pass.
+  /// - Parameter x: Input activations.
+  /// - Returns: A tuple containing the normalized output and cached tensors.
   @usableFromInline
   func _layerNormForward(_ x: Tensor) -> (
     value: Tensor,
@@ -124,28 +142,41 @@ public struct LayerNorm: Layer {
 
   /// Contextual entry point. LayerNorm is stateless (no running stats), so this
   /// simply forwards to the pure call.
+  /// - Parameters:
+  ///   - x: Input activations.
+  ///   - context: Forward context (unused).
+  /// - Returns: Normalized activations.
   @differentiable(reverse)
   public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
 
   // MARK: - Parameter traversal & AD plumbing
 
+  /// Applies the tangent `offset` to the layer's parameters.
+  /// - Parameter offset: Tangent vector produced by differentiation.
   public mutating func move(by offset: TangentVector) {
     gamma.move(by: offset.gamma)
     beta.move(by: offset.beta)
   }
 
+  /// Writable key paths for trainable parameters.
   public static var parameterKeyPaths: [WritableKeyPath<LayerNorm, Tensor>] {
     [\LayerNorm.gamma, \LayerNorm.beta]
   }
 
+  /// Tangent representation for `LayerNorm`.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+    /// Tangent for the scaling parameters.
     public var gamma: Tensor
+    /// Tangent for the bias parameters.
     public var beta: Tensor
 
+    /// Additive identity for the tangent vector.
     public static var zero: TangentVector { .init(gamma: .zero, beta: .zero) }
+    /// Adds two tangent vectors element-wise.
     public static func + (l: TangentVector, r: TangentVector) -> TangentVector {
       .init(gamma: l.gamma.adding(r.gamma), beta: l.beta.adding(r.beta))
     }
+    /// Subtracts two tangent vectors element-wise.
     public static func - (l: TangentVector, r: TangentVector) -> TangentVector {
       .init(
         gamma: l.gamma.adding(r.gamma.multiplying(-1)),
@@ -153,6 +184,7 @@ public struct LayerNorm: Layer {
       )
     }
 
+    /// Writable key paths for the tangent components.
     public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] {
       [\TangentVector.gamma, \TangentVector.beta]
     }
@@ -160,6 +192,9 @@ public struct LayerNorm: Layer {
 }
 
 extension LayerNorm {
+  /// Custom VJP that mirrors PyTorch's layer-normalization backward pass.
+  /// - Parameter x: Input activations.
+  /// - Returns: Layer output and a pullback producing parameter and input gradients.
   @usableFromInline
   @derivative(of: callAsFunction)
   func vjpCallAsFunction(_ x: Tensor) -> (value: Tensor, pullback: (Tensor) -> (TangentVector, Tensor)) {
