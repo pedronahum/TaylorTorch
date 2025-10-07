@@ -11,6 +11,70 @@
 import Foundation
 import _Differentiation
 
+/// Functional activation namespace used by layers and examples.
+/// Your hard-variants live in `HardActivations.swift` as `extension Activations { … }`.
+public enum Activations {
+  @inlinable @differentiable(reverse)
+  public static func identity(_ x: Tensor) -> Tensor { x }
+
+  @inlinable @differentiable(reverse)
+  public static func relu(_ x: Tensor) -> Tensor { x.relu() }
+
+  @inlinable @differentiable(reverse)
+  public static func tanh(_ x: Tensor) -> Tensor { x.tanh() }
+
+  @inlinable @differentiable(reverse)
+  public static func sigmoid(_ x: Tensor) -> Tensor { x.sigmoid() }
+
+  @inlinable @differentiable(reverse)
+  public static func exp(_ x: Tensor) -> Tensor { x.exp() }
+
+  @inlinable @differentiable(reverse)
+  public static func log(_ x: Tensor) -> Tensor { x.log() }
+
+  @inlinable @differentiable(reverse)
+  public static func sqrt(_ x: Tensor) -> Tensor { x.sqrt() }
+
+  @inlinable @differentiable(reverse)
+  public static func sin(_ x: Tensor) -> Tensor { x.sin() }
+
+  @inlinable @differentiable(reverse)
+  public static func cos(_ x: Tensor) -> Tensor { x.cos() }
+
+  @inlinable @differentiable(reverse)
+  public static func tan(_ x: Tensor) -> Tensor { x.tan() }
+
+  @inlinable @differentiable(reverse)
+  public static func asin(_ x: Tensor) -> Tensor { x.asin() }
+
+  @inlinable @differentiable(reverse)
+  public static func acos(_ x: Tensor) -> Tensor { x.acos() }
+
+  @inlinable @differentiable(reverse)
+  public static func atan(_ x: Tensor) -> Tensor { x.atan() }
+
+  @inlinable @differentiable(reverse)
+  public static func sinh(_ x: Tensor) -> Tensor { x.sinh() }
+
+  @inlinable @differentiable(reverse)
+  public static func cosh(_ x: Tensor) -> Tensor { x.cosh() }
+
+  @inlinable @differentiable(reverse)
+  public static func asinh(_ x: Tensor) -> Tensor { x.asinh() }
+
+  @inlinable @differentiable(reverse)
+  public static func acosh(_ x: Tensor) -> Tensor { x.acosh() }
+
+  @inlinable @differentiable(reverse)
+  public static func atanh(_ x: Tensor) -> Tensor { x.atanh() }
+
+  @inlinable @differentiable(reverse)
+  public static func erf(_ x: Tensor) -> Tensor { x.erf() }
+
+  @inlinable @differentiable(reverse)
+  public static func erfc(_ x: Tensor) -> Tensor { x.erfc() }
+}
+
 // MARK: - ReLU
 
 /// A parameter-free rectified linear unit activation layer.

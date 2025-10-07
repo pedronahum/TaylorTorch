@@ -157,6 +157,38 @@ let package = Package(
             ],
         ),
 
+        .executableTarget(
+            name: "CIFAR10Example",
+            dependencies: ["Torch"],
+            path: "Examples/CIFAR10",
+            swiftSettings: [
+                .interoperabilityMode(.Cxx),
+                .unsafeFlags([
+                    "-Xcc",
+                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
+                ]),
+                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
+                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
+                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
+                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
+                .unsafeFlags([
+                    "-Xcc",
+                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
+                ]),
+            ],
+            linkerSettings: [
+
+                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
+                .unsafeFlags([
+                    "-Xlinker", "-rpath", "-Xlinker",
+                    "/Users/pedro/programming/pytorch/install/lib",
+                ]),
+                .linkedLibrary("c10"),
+                .linkedLibrary("torch"),
+                .linkedLibrary("torch_cpu"),
+            ],
+        ),
+
         // ----------------- Test Targets -----------------
         .testTarget(
             name: "TensorTests",

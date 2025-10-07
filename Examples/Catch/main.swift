@@ -2,14 +2,16 @@ import Foundation
 import Torch
 import _Differentiation
 
-// Deterministic RNG for reproducibility.
+/// Deterministic xoshiro-style generator used to make RL rollouts reproducible.
 struct SeededGenerator: RandomNumberGenerator {
   private var state: UInt64
 
+  /// Creates a generator seeded with the provided value.
   init(seed: UInt64) {
     state = seed
   }
 
+  /// Produces the next pseudo-random `UInt64`.
   mutating func next() -> UInt64 {
     state &+= 0x9E37_79B9_7F4A_7C15
     var z = state
@@ -24,28 +26,36 @@ var rng = SeededGenerator(seed: 0xdead_beef)
 typealias Observation = Tensor
 typealias Reward = Float
 
+/// Minimal reinforcement-learning environment contract.
 protocol Environment {
   associatedtype Action: Equatable
+  /// Applies `action` and returns the resulting observation and reward.
   mutating func step(with action: Action) -> (observation: Observation, reward: Reward)
+  /// Resets the environment to its initial state and returns the starting observation.
   mutating func reset() -> Observation
 }
 
+/// Protocol adopted by agents that select the next action.
 protocol Agent: AnyObject {
   associatedtype Action: Equatable
+  /// Chooses the next action given the current observation and previous reward.
   func step(observation: Observation, reward: Reward) -> Action
 }
 
+/// Discrete actions available in the catch game.
 enum CatchAction: Int {
   case none
   case left
   case right
 }
 
+/// Convenience struct representing grid coordinates.
 struct Position: Equatable, Hashable {
   var x: Int
   var y: Int
 }
 
+/// Grid world where a paddle attempts to catch a falling ball.
 struct CatchEnvironment: Environment {
   typealias Action = CatchAction
 
@@ -62,6 +72,7 @@ struct CatchEnvironment: Environment {
     _ = reset()
   }
 
+  /// Applies the supplied action, advances the ball, and returns the new observation plus reward.
   mutating func step(with action: CatchAction) -> (observation: Observation, reward: Reward) {
     switch action {
     case .left where paddlePosition.x > 0:
@@ -83,6 +94,7 @@ struct CatchEnvironment: Environment {
   }
 
   @discardableResult
+  /// Reinitialises the ball and paddle positions.
   mutating func reset() -> Observation {
     let randomColumn = Int.random(in: 0..<columnCount, using: &rng)
     ballPosition = Position(x: randomColumn, y: 0)
@@ -90,6 +102,7 @@ struct CatchEnvironment: Environment {
     return observation
   }
 
+  /// Scalar reward: +1 for successful catch, -1 for a miss, 0 otherwise.
   var reward: Reward {
     guard ballPosition.y == rowCount else {
       return 0
@@ -97,6 +110,7 @@ struct CatchEnvironment: Environment {
     return abs(ballPosition.x - paddlePosition.x) <= 1 ? 1 : -1
   }
 
+  /// Observation vector normalised to `[0, 1]`.
   var observation: Observation {
     Tensor(
       array: [
@@ -108,6 +122,7 @@ struct CatchEnvironment: Environment {
     )
   }
 
+  /// Binary occupancy grid useful for printing the board.
   var grid: Observation {
     var scalars = [Float](repeating: 0, count: rowCount * columnCount)
     if ballPosition.y >= 0, ballPosition.y < rowCount,
@@ -125,6 +140,7 @@ struct CatchEnvironment: Environment {
 }
 
 extension CatchEnvironment: CustomStringConvertible {
+  /// Textual representation of the grid with ball and paddle positions.
   var description: String {
     let scalars = grid.toArray(as: Float.self)
     var rows: [String] = []
@@ -138,6 +154,7 @@ extension CatchEnvironment: CustomStringConvertible {
   }
 }
 
+/// Policy-gradient agent (REINFORCE with a moving baseline) trained online.
 final class CatchAgent: Agent {
   typealias Action = CatchAction
   typealias Policy = SequentialBlock<Sequential<Dense, Dense>>
@@ -149,10 +166,14 @@ final class CatchAgent: Agent {
   var baseline: Float
   let baselineMomentum: Float
 
+  /// Builds a two-layer MLP policy and initialises the running reward baseline.
+  /// - Parameters:
+  ///   - initialReward: Reward at the moment the agent is created (used for baseline warm start).
+  ///   - learningRate: AdamW learning rate.
   init(initialReward: Reward, learningRate: Double) {
     self.model = SequentialBlock {
-      Dense(inFeatures: 3, outFeatures: 50, activation: Activations.sigmoid)
-      Dense(inFeatures: 50, outFeatures: 3, activation: Activations.sigmoid)
+      Dense(inFeatures: 3, outFeatures: 50, activation: .relu)
+      Dense(inFeatures: 50, outFeatures: 3, activation: .identity)
     }
     self.optimizer = AdamW(for: model, learningRate: learningRate)
     self.previousObservation = nil
@@ -161,13 +182,19 @@ final class CatchAgent: Agent {
     self.baselineMomentum = 0.05
   }
 
+  /// Performs a REINFORCE update using the previous transition and chooses the next action.
+  /// - Parameters:
+  ///   - observation: Current observation from the environment.
+  ///   - reward: Reward obtained after executing the previous action.
+  /// - Returns: The action that should be taken next.
   func step(observation: Observation, reward: Reward) -> Action {
     if let storedObservation = previousObservation, let storedActionIndex = previousActionIndex {
       let advantage = reward - baseline
       let (_, pullback) = valueWithPullback(at: model) { current -> Tensor in
         let logits = current(storedObservation.unsqueezed(dim: 0))
         let logProbs = self.logSoftmax(logits)
-        let selectedLogProb = logProbs.indexSelect(dim: 1, indices: [Int64(storedActionIndex)]).sum()
+        let selectedLogProb = logProbs.indexSelect(dim: 1, indices: [Int64(storedActionIndex)])
+          .sum()
         return selectedLogProb.negated().multiplying(Tensor(advantage, dtype: .float32))
       }
       let grad = pullback(Tensor(1.0, dtype: .float32))
@@ -188,6 +215,7 @@ final class CatchAgent: Agent {
     return Action(rawValue: actionIndex) ?? .none
   }
 
+  /// Computes the optimal action assuming perfect knowledge of the environment dynamics.
   func perfectAction(for observation: Observation) -> Action {
     let scalars = observation.toArray(as: Float.self)
     guard scalars.count == 3 else { return .none }
@@ -197,11 +225,13 @@ final class CatchAgent: Agent {
     return paddleX < ballX ? .right : .left
   }
 
+  /// Returns a uniformly random action.
   func randomAction() -> Action {
     let id = Int.random(in: 0..<3, using: &rng)
     return Action(rawValue: id) ?? .none
   }
 
+  /// Numerically stable log-softmax helper.
   private func logSoftmax(_ logits: Tensor) -> Tensor {
     let maxValues = logits.max(dim: 1, keepdim: true).values
     let shifted = logits - maxValues
@@ -209,6 +239,7 @@ final class CatchAgent: Agent {
     return shifted - logSumExp
   }
 
+  /// Draws an action index from the categorical distribution represented by `probabilities`.
   private func sampleAction(from probabilities: Tensor) -> Int {
     let scalars = probabilities[0].toArray(as: Float.self)
     let randomValue = Float.random(in: 0..<1, using: &rng)
@@ -223,8 +254,11 @@ final class CatchAgent: Agent {
   }
 }
 
+/// Five-by-five board with a single falling ball and paddle.
 var environment = CatchEnvironment(rowCount: 5, columnCount: 5)
+/// Online policy-gradient agent trained while interacting with the environment.
 var agent = CatchAgent(initialReward: environment.reward, learningRate: 0.05)
+/// Latest action executed in the environment.
 var action: CatchAction = .none
 
 var gameCount = 0
@@ -233,6 +267,7 @@ var totalWinCount = 0
 let maxIterations = 5_000
 
 while gameCount < maxIterations {
+  /// Advance the simulation using the previous action and let the agent react to the new observation.
   let (observation, reward) = environment.step(with: action)
   action = agent.step(observation: observation, reward: reward)
 
@@ -253,4 +288,5 @@ while gameCount < maxIterations {
 }
 
 let finalRate = Float(totalWinCount) / Float(gameCount)
+/// Summarise the agent's success rate over the full run.
 print("Win rate (final): \(finalRate) [\(totalWinCount)/\(gameCount)]")

@@ -1,60 +1,36 @@
+//
 // Sources/Torch/Modules/Builders/LayerBuilder.swift
 //
-// WHY: Lets users write typed stacks ergonomically:
+// Unlimited-depth result builder that folds statements into nested
+// `Sequential<_, _>` types. Conservative about inlining/resilience.
 //
-//   let model = SequentialBlock {
-//     Linear.glorot(inFeatures: 784, outFeatures: 256)
-//     ReLU()
-//     Linear.glorot(inFeatures: 256, outFeatures: 10)
-//   }
-//
-// Under the hood, this lowers to nested `Sequential<_,_>` types—so it stays
-// fully generic and zero‑cost (no type erasure). It composes with your
-// ParameterIterable traversal and optimizers.
-//
-// Works with your existing `Sequential<L1,L2>` implementation. :contentReference[oaicite:5]{index=5}
 
 import _Differentiation
 
+// MARK: - Result builder with unbounded depth
+
 @resultBuilder
 public enum LayerBuilder {
-  public static func buildBlock<L: Layer>(_ l: L) -> L { l }
+  // Stream the first statement into the accumulator.
+  public static func buildPartialBlock<L: Layer>(first l: L) -> L { l }
 
-  public static func buildBlock<L1: Layer, L2: Layer>(_ l1: L1, _ l2: L2)
-    -> Sequential<L1, L2>
-  { Sequential(l1, l2) }
-
-  public static func buildBlock<L1: Layer, L2: Layer, L3: Layer>(
-    _ l1: L1, _ l2: L2, _ l3: L3
-  ) -> Sequential<Sequential<L1, L2>, L3> {
-    Sequential(Sequential(l1, l2), l3)
+  // Fold each next statement by nesting into `Sequential<Acc, Next>`.
+  public static func buildPartialBlock<Acc: Layer, Next: Layer>(
+    accumulated acc: Acc, next: Next
+  ) -> Sequential<Acc, Next> {
+    Sequential(acc, next)
   }
 
-  public static func buildBlock<L1: Layer, L2: Layer, L3: Layer, L4: Layer>(
-    _ l1: L1, _ l2: L2, _ l3: L3, _ l4: L4
-  ) -> Sequential<Sequential<Sequential<L1, L2>, L3>, L4> {
-    Sequential(Sequential(Sequential(l1, l2), l3), l4)
-  }
+  // Typed conditionals: allow `if/else` when both branches produce the same `L`.
+  public static func buildEither<L: Layer>(first l: L) -> L { l }
+  public static func buildEither<L: Layer>(second l: L) -> L { l }
 
-  public static func buildBlock<L1: Layer, L2: Layer, L3: Layer, L4: Layer, L5: Layer>(
-    _ l1: L1, _ l2: L2, _ l3: L3, _ l4: L4, _ l5: L5
-  ) -> Sequential<Sequential<Sequential<Sequential<L1, L2>, L3>, L4>, L5> {
-    Sequential(Sequential(Sequential(Sequential(l1, l2), l3), l4), l5)
-  }
-
-  public static func buildBlock<L1: Layer, L2: Layer, L3: Layer, L4: Layer, L5: Layer, L6: Layer>(
-    _ l1: L1, _ l2: L2, _ l3: L3, _ l4: L4, _ l5: L5, _ l6: L6
-  ) -> Sequential<
-    Sequential<Sequential<Sequential<Sequential<L1, L2>, L3>, L4>, L5>, L6
-  > {
-    Sequential(Sequential(Sequential(Sequential(Sequential(l1, l2), l3), l4), l5), l6)
-  }
-
-  // Extend with more overloads if you routinely build deeper stacks.
+  // Allow empty builder blocks to compile as a no‑op.
+  public static func buildBlock() -> Identity { Identity() }
 }
 
-/// A thin wrapper that hides the nested type in API surfaces.
-/// Still zero‑cost: it stores the fully‑typed body and forwards everything.
+// MARK: - Wrapper to hide the nested type while keeping it zero‑cost.
+
 public struct SequentialBlock<Body: Layer>: Layer {
   public var body: Body
 
@@ -70,16 +46,15 @@ public struct SequentialBlock<Body: Layer>: Layer {
 
   public mutating func move(by offset: TangentVector) { body.move(by: offset.body) }
 
-  // Parameter traversal forwards to `Body` by composing key paths via `\.body`.
   public static var parameterKeyPaths: [WritableKeyPath<SequentialBlock, Tensor>] {
     var paths: [WritableKeyPath<SequentialBlock, Tensor>] = []
     for kp in Body.parameterKeyPaths {
+      // Use the same helper you use elsewhere.
       paths.append((\SequentialBlock.body).appending(kp))
     }
     return paths
   }
 
-  /// Mirror the tangent structure so optimizers stay shape‑aligned.
   public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
     public var body: Body.TangentVector
 
