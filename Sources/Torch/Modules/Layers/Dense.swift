@@ -12,7 +12,24 @@ public struct Dense: Layer {
   public enum ActivationKind: Sendable, Equatable {
     case identity
     case relu
-    // Add more cases if you want to route through here.
+    case tanh
+    case sigmoid
+    case exp
+    case log
+    case sqrt
+    case sin
+    case tan
+    case asin
+    case acos
+    case atan
+    case sinh
+    case cosh
+    case asinh
+    case acosh
+    case atanh
+    case erf
+    case erfc
+
   }
 
   // MARK: Stored state
@@ -112,6 +129,24 @@ public struct Dense: Layer {
     switch activation {
     case .identity: return z
     case .relu: return z.relu()
+    case .log: return z.log()
+    case .sqrt: return z.sqrt()
+    case .sin: return z.sin()
+    case .tan: return z.tan()
+    case .asin: return z.asin()
+    case .acos: return z.acos()
+    case .atan: return z.atan()
+    case .sinh: return z.sinh()
+    case .cosh: return z.cosh()
+    case .asinh: return z.asinh()
+    case .acosh: return z.acosh()
+    case .atanh: return z.atanh()
+    case .erf: return z.erf()
+    case .erfc: return z.erfc()
+    case .tanh: return z.tanh()
+    case .sigmoid: return z.sigmoid()
+    case .exp: return z.exp()
+
     }
   }
 
