@@ -32,6 +32,7 @@ let logits = block(tokens, context: ctx)
 ## Convolution and pooling
 
 - `Conv2D.swift` – 2D convolution with stride, padding, dilation, groups, and configurable data format (NCHW/NHWC).
+- `DepthwiseSeparableConv2D.swift` – MobileNet-style depthwise + pointwise stack with shared `ForwardContext` support and optional fused activations.
 - `Pooling.swift` – `MaxPool2D` and `AvgPool2D` layers that mirror the ATen operators while providing context-aware composition.
 - `DataFormat.swift` – Shared enum describing tensor memory layouts so convolution, pooling, and normalization layers agree on axis order.
 

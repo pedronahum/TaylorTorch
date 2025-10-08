@@ -11,7 +11,12 @@ struct TrainingConfig {
   var learningRate: Double = 1e-3
   var shuffleSeed: UInt64 = 0xfeed_cafe
   var maxBatchesPerEpoch: Int? = nil
+
+  // New: architecture & width multiplier for MobileNet
+  var arch: String = "mobilenetv1"  // lenet | alexnet | vgg11 | vgg16 | mobilenetv1 | mlp
+  var alpha: Double = 1.0  // only used by mobilenetv1
 }
+
 func parseConfig() -> TrainingConfig {
   var c = TrainingConfig()
   for arg in CommandLine.arguments.dropFirst() {
@@ -29,18 +34,25 @@ func parseConfig() -> TrainingConfig {
       c.shuffleSeed = v
     } else if let v = parseInt(arg, prefix: "--max-batches=") {
       c.maxBatchesPerEpoch = v
+    } else if let v = parseString(arg, prefix: "--arch=") {
+      c.arch = v.lowercased()
+    } else if let v = parseDouble(arg, prefix: "--alpha=") {
+      c.alpha = v
     }
   }
   return c
 }
-func parseInt(_ a: String, prefix: String) -> Int? {
+@inline(__always) func parseInt(_ a: String, prefix: String) -> Int? {
   a.hasPrefix(prefix) ? Int(a.dropFirst(prefix.count)) : nil
 }
-func parseDouble(_ a: String, prefix: String) -> Double? {
+@inline(__always) func parseDouble(_ a: String, prefix: String) -> Double? {
   a.hasPrefix(prefix) ? Double(a.dropFirst(prefix.count)) : nil
 }
-func parseUInt64(_ a: String, prefix: String) -> UInt64? {
+@inline(__always) func parseUInt64(_ a: String, prefix: String) -> UInt64? {
   a.hasPrefix(prefix) ? UInt64(a.dropFirst(prefix.count)) : nil
+}
+@inline(__always) func parseString(_ a: String, prefix: String) -> String? {
+  a.hasPrefix(prefix) ? String(a.dropFirst(prefix.count)) : nil
 }
 
 // ---- Batching & metrics ----
@@ -48,6 +60,7 @@ struct CIFARBatch {
   let images: Tensor
   let labels: Tensor
 }
+
 func makeBatch(_ batch: [CIFAR10Example]) -> CIFARBatch {
   let images = Tensor.stack(batch.map { $0.image }, dim: 0)  // [N, 3, 32, 32]
   let labelScalars = batch.map { Int64($0.label) }
@@ -80,57 +93,27 @@ func evaluate<Model: Layer>(_ model: Model, loader: DataLoader<ArrayDataset<CIFA
   return (totalLoss / Double(total), Double(totalCorrect) / Double(total))
 }
 
-// ---- Main ----
-do {
-  let cfg = parseConfig()
-  print("TaylorTorch CIFAR-10 • epochs: \(cfg.epochs), batch: \(cfg.batchSize)")
-
-  print("Preparing CIFAR-10 dataset…")
-  let cifar = try CIFAR10(normalize: true)
-  print("Loaded CIFAR-10 with \(cifar.train.count) training and \(cifar.test.count) test samples")
+// ---- Generic training loop (works for any Layer) ----
+func run<Model: Layer>(model: Model, cfg: TrainingConfig, cifar: CIFAR10) {
+  // For parity with your examples, reuse the same optimizer and logging.
+  var model = model
+  var opt = AdamW(for: model, learningRate: cfg.learningRate)
+  let stepsPerEpoch = (cifar.train.count + cfg.batchSize - 1) / cfg.batchSize
 
   let testLoader = DataLoader(
     dataset: cifar.test, batchSize: cfg.evalBatchSize, shuffle: false, dropLast: false, seed: nil)
-
-  // Compose the entire network inside one SequentialBlock.
-  let model = SequentialBlock {
-    // ---- Feature extractor (LeNet-ish) ----
-    Conv2D.kaimingUniform(inC: 3, outC: 6, kH: 5, kW: 5, padding: .valid)
-    ReLU()
-    Dropout(rate: 0.3)
-
-    MaxPool2D(kernel: (2, 2))
-    Conv2D.kaimingUniform(inC: 6, outC: 16, kH: 5, kW: 5, padding: .valid)
-    ReLU()
-    Dropout(rate: 0.3)
-
-    MaxPool2D(kernel: (2, 2))
-    Conv2D.kaimingUniform(inC: 16, outC: 32, kH: 3, kW: 3, padding: .valid)
-    ReLU()
-    Dropout(rate: 0.3)
-
-    // ---- Classifier ----
-    Flatten()
-    Dense(inFeatures: 32 * 3 * 3, outFeatures: 120, dtype: .float32, device: .cpu)
-    ReLU()
-    Dropout(rate: 0.5)
-
-    Dense(inFeatures: 120, outFeatures: 84, dtype: .float32, device: .cpu)
-    ReLU()
-    Dropout(rate: 0.5)
-
-    Dense(
-      inFeatures: 84,
-      outFeatures: 10,
-      dtype: .float32,
-      device: .cpu
-    )
-  }
-
-  var modelCopy = model  // mutable copy for training
-  var opt = AdamW(for: modelCopy, learningRate: cfg.learningRate)
-  let stepsPerEpoch = (cifar.train.count + cfg.batchSize - 1) / cfg.batchSize
   let start = Date()
+
+  // Parameter count (sum of shapes).
+  @inline(__always) func paramCount<M: Layer>(_ m: M) -> Int {
+    var total = 0
+    for kp in M.parameterKeyPaths {
+      let t = m[keyPath: kp]
+      total += t.shape.reduce(1, *)
+    }
+    return total
+  }
+  print("Model parameters: \(paramCount(model))")
 
   for epoch in 1...cfg.epochs {
     let trainLoader = DataLoader(
@@ -156,14 +139,14 @@ do {
       if let limit = cfg.maxBatchesPerEpoch, step > limit { break }
 
       let b = makeBatch(batch)
-      let (lossTensor, pullback) = valueWithPullback(at: modelCopy) { current -> Tensor in
+      let (lossTensor, pullback) = valueWithPullback(at: model) { current -> Tensor in
         let logits = current.call(b.images, context: trainContext)
         return softmaxCrossEntropy(logits: logits, labels: b.labels)
       }
       let grad = pullback(Tensor(1.0, dtype: .float32))
-      opt.update(&modelCopy, along: grad)
+      opt.update(&model, along: grad)
 
-      let logits = modelCopy.call(b.images, context: inferenceContext)
+      let logits = model.call(b.images, context: inferenceContext)
       let (correct, n) = batchAccuracy(logits: logits, labels: b.labels)
       let lossVal = Double(lossTensor.toArray(as: Float.self)[0])
 
@@ -198,7 +181,7 @@ do {
 
     let trainLoss = runningLoss / Double(runningTotal)
     let trainAcc = Double(runningCorrect) / Double(runningTotal)
-    let (valLoss, valAcc) = evaluate(modelCopy, loader: testLoader)
+    let (valLoss, valAcc) = evaluate(model, loader: testLoader)
     print(
       String(
         format:
@@ -207,6 +190,55 @@ do {
   }
 
   print(String(format: "Training finished in %.1fs", Date().timeIntervalSince(start)))
+}
+
+// ---- Main (select architecture, then run) ----
+do {
+  var cfg = parseConfig()
+  print("TaylorTorch CIFAR-10 • arch: \(cfg.arch) • epochs: \(cfg.epochs), batch: \(cfg.batchSize)")
+
+  print("Preparing CIFAR-10 dataset…")
+  let cifar = try CIFAR10(normalize: true)
+  print("Loaded CIFAR-10 with \(cifar.train.count) training and \(cifar.test.count) test samples")
+
+  // Dispatch to the selected architecture. Each branch specializes run<Model: Layer>.
+  switch cfg.arch {
+  case "lenet":
+    run(model: CIFARArchitectures.leNet(), cfg: cfg, cifar: cifar)
+
+  case "alexnet":
+    run(model: CIFARArchitectures.alexNetCIFAR(), cfg: cfg, cifar: cifar)
+
+  case "vgg11":
+    run(model: CIFARArchitectures.vgg11CIFAR(), cfg: cfg, cifar: cifar)
+
+  case "vgg16":
+    run(model: CIFARArchitectures.vgg16CIFAR(), cfg: cfg, cifar: cifar)
+
+  case "mobilenetv1":
+    run(model: CIFARArchitectures.mobileNetV1CIFAR(alpha: cfg.alpha), cfg: cfg, cifar: cifar)
+
+  case "mlp":
+    run(model: CIFARArchitectures.mlp(), cfg: cfg, cifar: cifar)
+
+  case "mini-cnn":
+    run(model: CIFARMiniArchitectures.miniCNN(), cfg: cfg, cifar: cifar)
+
+  case "tiny-vgg":
+    run(model: CIFARMiniArchitectures.tinyVGG(), cfg: cfg, cifar: cifar)
+
+  case "micro-mobilenet":
+    run(model: CIFARMiniArchitectures.microMobileNetV1(alpha: cfg.alpha), cfg: cfg, cifar: cifar)
+
+  case "nano-mlp":
+    run(model: CIFARMiniArchitectures.nanoMLP(width: 64), cfg: cfg, cifar: cifar)
+
+  default:
+    print(
+      "Unknown --arch=\(cfg.arch). Supported: lenet | alexnet | vgg11 | vgg16 | mobilenetv1 | mlp")
+    print("Falling back to lenet.")
+    run(model: CIFARArchitectures.leNet(), cfg: cfg, cifar: cifar)
+  }
 } catch {
   let msg = "CIFAR-10 example failed: \(error)\n"
   FileHandle.standardError.write(msg.data(using: .utf8)!)
