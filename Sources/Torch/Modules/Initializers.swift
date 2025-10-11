@@ -13,14 +13,3 @@ public func glorotUniform(fanIn: Int, fanOut: Int, dtype: DType = .float32, devi
 public func zeros(_ n: Int, dtype: DType = .float32, device: Device = .cpu) -> Tensor {
   Tensor.zeros(shape: [n], dtype: dtype, device: device)
 }
-
-extension Linear {
-  public static func glorot(
-    inFeatures: Int, outFeatures: Int,
-    dtype: DType = .float32, device: Device = .cpu
-  ) -> Linear {
-    Linear(
-      weight: glorotUniform(fanIn: inFeatures, fanOut: outFeatures, dtype: dtype, device: device),
-      bias: zeros(outFeatures, dtype: dtype, device: device))
-  }
-}

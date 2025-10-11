@@ -86,6 +86,7 @@ extension Tensor {
   /// Returns the element-wise complementary error function of the tensor.
   @inlinable
   public func erfc() -> Tensor { Tensor(_impl.erfc_()) }
+
 }
 
 // MARK: - Binary (tensor ⊗ tensor)

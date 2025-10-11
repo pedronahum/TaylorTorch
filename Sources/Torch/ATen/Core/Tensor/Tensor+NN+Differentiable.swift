@@ -128,3 +128,16 @@ extension Tensor {
   }
 
 }
+
+public extension Tensor {
+  /// Numerically stable softmax along the specified dimension.
+  @differentiable(reverse, wrt: self)
+  func softmax(dim: Int) -> Tensor {
+    let axis = withoutDerivative(at: dim)
+    let maxValues = self.max(dim: axis, keepdim: true).values
+    let shifted = self - maxValues
+    let expValues = shifted.exp()
+    let sumExp = expValues.sum(dim: axis, keepdim: true)
+    return expValues / sumExp
+  }
+}

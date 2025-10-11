@@ -1,251 +1,182 @@
-// Sources/Torch/Modules/Layers/LayerNorm.swift
-//
-// WHY
-// Layer Normalization (Ba et al., 2016) normalizes activations *per sample* over
-// the last k feature axes. It is batch-size independent (unlike BatchNorm),
-// numerically stable (epsilon in the denominator), and widely used in
-// transformers and RNNs.
-//
-// Design
-// - Conforms to the shared `Layer` surface (pure call + contextual call). No
-//   running stats; train/inference behavior is identical.
-// - Parameters are `gamma` (scale) and `beta` (offset). They broadcast across the
-//   normalized axes and are discoverable via `parameterKeyPaths`, so optimizers
-//   and Euclidean algebra work with no extra code.
-//
-// References
-// - S4TF `Normalization.swift` (LayerNorm semantics).
-// - Keras / TF docs for axis, epsilon, and broadcasting behavior.
-//
-// See also: Layer.swift, ParameterIterable.swift, EuclideanModel.swift.
-
+import Foundation
 import _Differentiation
 
-/// Layer normalization over the trailing `normalizedRank` axes.
+/// Layer Normalization along an arbitrary feature axis (default: last / -1).
+///
+/// Shapes:
+///   - x:     [N, D1, D2, ..., C]   // feature axis is `axis`
+///   - gamma: [C]
+///   - beta:  [C]
+///
+/// Unlike BatchNorm, LayerNorm is context-agnostic (no running stats).
 public struct LayerNorm: Layer {
-  // Trainable parameters spanning the normalized trailing shape.
-  /// Learnable scaling factors broadcast across the normalized axes.
-  public var gamma: Tensor
-  /// Learnable offsets broadcast across the normalized axes.
-  public var beta: Tensor
+  // Trainable parameters
+  public var gamma: Tensor  // [C]
+  public var beta: Tensor  // [C]
 
-  // How many *trailing* axes to normalize over (e.g., 1 = last axis).
-  @noDerivative public var normalizedRank: Int
-  // Numerical stability constant added inside the square root.
-  @noDerivative public var epsilon: Double
+  // Hyper-parameters
+  @noDerivative public var epsilon: Float
+  @noDerivative public var axis: Int
+  @noDerivative public var affine: Bool
 
-  // MARK: - Inits
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  /// Normalize across the last `normalizedRank` axes whose combined shape is `normalizedShape`.
-  /// `gamma` and `beta` are initialized to ones/zeros with that trailing shape.
-  /// - Parameters:
-  ///   - normalizedShape: Shape of the trailing axes to normalize.
-  ///   - epsilon: Small constant added to the variance for stability.
-  ///   - dtype: Element dtype for the parameters.
-  ///   - device: Device on which to allocate the parameters.
-  public init(
-    normalizedShape: [Int],
-    epsilon: Double = 1e-5,
-    dtype: DType = .float32,
-    device: Device = .cpu
-  ) {
-    precondition(!normalizedShape.isEmpty, "normalizedShape must have at least one dimension")
-    self.gamma = Tensor.ones(shape: normalizedShape, dtype: dtype, device: device)
-    self.beta = Tensor.zeros(shape: normalizedShape, dtype: dtype, device: device)
-    self.normalizedRank = normalizedShape.count
-    self.epsilon = epsilon
-  }
-
-  /// Convenience: normalize along the last axis (feature dimension).
-  /// - Parameters:
-  ///   - featureCount: Number of features on the final axis.
-  ///   - epsilon: Small constant added to the variance for stability.
-  ///   - dtype: Element dtype for the parameters.
-  ///   - device: Device on which to allocate the parameters.
-  public init(
-    featureCount: Int,
-    epsilon: Double = 1e-5,
-    dtype: DType = .float32,
-    device: Device = .cpu
-  ) {
-    self.init(normalizedShape: [featureCount], epsilon: epsilon, dtype: dtype, device: device)
-  }
-
-  // MARK: - Forward
-
-  /// y = ((x - μ) / sqrt(σ² + ε)) * γ + β
-  /// - Parameter x: Input activations.
-  /// - Returns: Normalized activations.
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor {
-    _layerNormForward(x).value
-  }
-
-  /// Performs the forward pass while storing intermediates for the backward pass.
-  /// - Parameter x: Input activations.
-  /// - Returns: A tuple containing the normalized output and cached tensors.
-  @usableFromInline
-  func _layerNormForward(_ x: Tensor) -> (
-    value: Tensor,
-    normalized: Tensor,
-    centered: Tensor,
-    denom: Tensor,
-    axes: [Int],
-    broadcastShape: [Int],
-    leadingRank: Int,
-    normalizedShape: [Int],
-    gammaB: Tensor
-  ) {
-    let r = withoutDerivative(at: x.rank)
-    precondition(
-      normalizedRank > 0 && normalizedRank <= r,
-      "normalizedRank (\(normalizedRank)) must be in 1...\(r)"
-    )
-
-    let axes = withoutDerivative(at: Array((r - normalizedRank)..<r))
-
-    var mean = x
-    for d in axes { mean = mean.mean(dim: d, keepdim: true) }
-
-    let centered = x.subtracting(mean)
-    var variance = centered.multiplying(centered)
-    for d in axes { variance = variance.mean(dim: d, keepdim: true) }
-
-    let epsTensor = withoutDerivative(at: Tensor(
-      epsilon,
-      dtype: variance.dtype ?? x.dtype!,
-      device: variance.device
-    ))
-    let denom = variance.adding(epsTensor).sqrt()
-    let normalized = centered.dividing(denom)
-
-    let normalizedShape = withoutDerivative(at: gamma.shape)
-    let leadingRank = withoutDerivative(at: r - normalizedRank)
-    let leadingOnes = withoutDerivative(at: Array(repeating: 1, count: max(leadingRank, 0)))
-    let broadcastShape = withoutDerivative(at: leadingOnes + normalizedShape)
-    let gammaB = gamma.reshaped(broadcastShape)
-    let betaB = beta.reshaped(broadcastShape)
-    let value = normalized.multiplying(gammaB).adding(betaB)
-
-    return (
-      value: value,
-      normalized: normalized,
-      centered: centered,
-      denom: denom,
-      axes: axes,
-      broadcastShape: broadcastShape,
-      leadingRank: leadingRank,
-      normalizedShape: normalizedShape,
-      gammaB: gammaB
-    )
-  }
-
-  /// Contextual entry point. LayerNorm is stateless (no running stats), so this
-  /// simply forwards to the pure call.
-  /// - Parameters:
-  ///   - x: Input activations.
-  ///   - context: Forward context (unused).
-  /// - Returns: Normalized activations.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
-
-  // MARK: - Parameter traversal & AD plumbing
-
-  /// Applies the tangent `offset` to the layer's parameters.
-  /// - Parameter offset: Tangent vector produced by differentiation.
-  public mutating func move(by offset: TangentVector) {
-    gamma.move(by: offset.gamma)
-    beta.move(by: offset.beta)
-  }
-
-  /// Writable key paths for trainable parameters.
-  public static var parameterKeyPaths: [WritableKeyPath<LayerNorm, Tensor>] {
-    [\LayerNorm.gamma, \LayerNorm.beta]
-  }
-
-  /// Tangent representation for `LayerNorm`.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Tangent for the scaling parameters.
+  // MARK: - Manual TangentVector (avoid synthesis pitfalls)
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,  // explicit witnesses
+    KeyPathIterable,  // required by Module
+    VectorProtocol,  // required by Module
+    PointwiseMultiplicative  // required by Module
+  {
+    public typealias VectorSpaceScalar = Float
     public var gamma: Tensor
-    /// Tangent for the bias parameters.
     public var beta: Tensor
 
-    /// Additive identity for the tangent vector.
-    public static var zero: TangentVector { .init(gamma: .zero, beta: .zero) }
-    /// Adds two tangent vectors element-wise.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector {
-      .init(gamma: l.gamma.adding(r.gamma), beta: l.beta.adding(r.beta))
+    public init(gamma: Tensor = Tensor(0), beta: Tensor = Tensor(0)) {
+      self.gamma = gamma
+      self.beta = beta
     }
-    /// Subtracts two tangent vectors element-wise.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector {
-      .init(
-        gamma: l.gamma.adding(r.gamma.multiplying(-1)),
-        beta: l.beta.adding(r.beta.multiplying(-1))
-      )
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self {
+      .init(gamma: lhs.gamma + rhs.gamma, beta: lhs.beta + rhs.beta)
     }
+    public static func - (lhs: Self, rhs: Self) -> Self {
+      .init(gamma: lhs.gamma - rhs.gamma, beta: lhs.beta - rhs.beta)
+    }
+  }
 
-    /// Writable key paths for the tangent components.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] {
-      [\TangentVector.gamma, \TangentVector.beta]
-    }
+  public mutating func move(by d: TangentVector) {
+    gamma += d.gamma
+    beta += d.beta
+  }
+
+  // MARK: - Init
+
+  /// - Parameters:
+  ///   - featureCount: length `C` of the feature axis.
+  ///   - axis: feature axis (negative allowed, default `-1`).
+  ///   - epsilon: numerical stability constant.
+  ///   - affine: if `false`, skip scale/shift.
+  public init(
+    featureCount: Int,
+    axis: Int = -1,
+    epsilon: Float = 1e-5,
+    affine: Bool = true,
+    dtype: DType = .float32,
+    device: Device = .cpu
+  ) {
+    self.gamma = Tensor.ones(shape: [featureCount], dtype: dtype, device: device)
+    self.beta = Tensor.zeros(shape: [featureCount], dtype: dtype, device: device)
+    self.axis = axis
+    self.epsilon = epsilon
+    self.affine = affine
+  }
+
+  // MARK: - Helpers
+
+  /// Resolve possibly-negative `axis` for a given rank (mirrors your pattern elsewhere).
+  @inlinable
+  func _normAxis(forRank rank: Int) -> Int {
+    _normalizeDimension(axis, rank: rank)  // negative axes allowed
+  }
+
+  /// Reshape a rank-1 parameter `[C]` to a broadcastable view `[1, ..., C, ..., 1]`.
+  @inlinable
+  internal func _paramView(_ p: Tensor, like x: Tensor, atAxis a: Int) -> Tensor {
+    precondition(p.rank == 1, "LayerNorm params must be rank‑1 (length = featureCount)")
+    let rank = withoutDerivative(at: x.rank)
+    let featureCount = withoutDerivative(at: x.shape[a])
+    precondition(
+      p.shape == [featureCount],
+      "Param length \(p.shape[0]) must equal feature count \(featureCount) on axis \(a)")
+    var target = [Int](repeating: 1, count: rank)
+    target[a] = featureCount
+    // Broadcasting gives the right forward semantics and its pullback reduces back to [C].
+    return p.broadcasted(to: target)
+  }
+
+  // MARK: - Forward (general rank)
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    precondition(x.rank >= 1, "LayerNorm expects rank ≥ 1")
+
+    // Resolve axis and validate parameter length
+    let a = withoutDerivative(at: _normAxis(forRank: x.rank))
+    precondition(
+      gamma.shape[0] == x.shape[a],
+      "LayerNorm: gamma length (\(gamma.shape[0])) must equal feature size (\(x.shape[a]))")
+    precondition(
+      beta.shape[0] == x.shape[a],
+      "LayerNorm: beta length (\(beta.shape[0])) must equal feature size (\(x.shape[a]))")
+
+    // Per-sample mean/var over the feature axis (keep reduced dim for broadcasting).
+    let mean = x.mean(dim: a, keepdim: true)  // [N, …, 1]
+    let centered = x - mean  // [N, …, C]
+    let var_ = centered.multiplying(centered).mean(dim: a, keepdim: true)  // [N, …, 1]
+
+    // invStd = 1 / sqrt(var + eps) using your dtype/device-correct scalar division pattern.
+    let std = (var_.adding(Tensor(epsilon))).sqrt()
+    let stdDType = withoutDerivative(at: std.dtype ?? (x.dtype ?? .float32))
+    let stdDevice = withoutDerivative(at: std.device)
+    let scalarOne = Tensor.ones(shape: [], dtype: stdDType, device: stdDevice)
+    let invStd = scalarOne.dividing(std)  // [N, …, 1]
+    let yNorm = centered.multiplying(invStd)  // [N, …, C]
+
+    if !affine { return yNorm }
+
+    // Broadcast gamma/beta to the full shape by reshaping to [1, …, C, …, 1].
+    let g = _paramView(gamma, like: x, atAxis: a)
+    let b = _paramView(beta, like: x, atAxis: a)
+    return yNorm.multiplying(g).adding(b)
   }
 }
 
+// MARK: - Manual derivatives (avoid curried-member code path)
 extension LayerNorm {
-  /// Custom VJP that mirrors PyTorch's layer-normalization backward pass.
-  /// - Parameter x: Input activations.
-  /// - Returns: Layer output and a pullback producing parameter and input gradients.
-  @usableFromInline
-  @derivative(of: callAsFunction)
-  func vjpCallAsFunction(_ x: Tensor) -> (value: Tensor, pullback: (Tensor) -> (TangentVector, Tensor)) {
-    let cache = _layerNormForward(x)
-    let axesSorted = withoutDerivative(at: cache.axes.sorted(by: >))
-    func reduceOverAxes(_ tensor: Tensor, keepdim: Bool) -> Tensor {
-      var result = tensor
-      for dim in axesSorted {
-        result = result.sum(dim: dim, keepdim: keepdim)
-      }
-      return result
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (
+      value: Tensor,
+      pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector)
+    )
+  {
+    func primal(_ s: LayerNorm, _ i: Tensor) -> Tensor {
+      precondition(i.rank >= 1, "LayerNorm expects rank ≥ 1")
+      let a = withoutDerivative(at: _normalizeDimension(s.axis, rank: i.rank))
+
+      let mean = i.mean(dim: a, keepdim: true)
+      let centered = i - mean
+      let var_ = centered.multiplying(centered).mean(dim: a, keepdim: true)
+
+      let std = (var_.adding(Tensor(s.epsilon))).sqrt()
+      let stdDType = withoutDerivative(at: std.dtype ?? (i.dtype ?? .float32))
+      let stdDevice = withoutDerivative(at: std.device)
+      let scalarOne = Tensor.ones(shape: [], dtype: stdDType, device: stdDevice)
+      let invStd = scalarOne.dividing(std)
+      let yNorm = centered.multiplying(invStd)
+
+      if !s.affine { return yNorm }
+      let g = s._paramView(s.gamma, like: i, atAxis: a)
+      let b = s._paramView(s.beta, like: i, atAxis: a)
+      return yNorm.multiplying(g).adding(b)
     }
 
-    let leadingRank = cache.leadingRank
-    let leadingAxesSorted = withoutDerivative(at: Array(0..<max(leadingRank, 0)).sorted(by: >))
-    func reduceLeading(_ tensor: Tensor) -> Tensor {
-      var result = tensor
-      for dim in leadingAxesSorted {
-        result = result.sum(dim: dim, keepdim: false)
-      }
-      return result
-    }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (y, pb)
+  }
 
-    let normalizedShape = cache.normalizedShape
-    let elementsPerSample = withoutDerivative(at: normalizedShape.reduce(1, *))
-    let dtype = cache.normalized.dtype ?? cache.gammaB.dtype ?? x.dtype ?? .float32
-    let device = cache.normalized.device
-    let nTensor = withoutDerivative(at: Tensor(Double(elementsPerSample), dtype: dtype, device: device))
-    let invNTensor = withoutDerivative(at: Tensor(1.0 / Double(elementsPerSample), dtype: dtype, device: device))
-
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor.TangentVector) -> TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
     return (
-      value: cache.value,
-      pullback: { upstream in
-        let dBeta = reduceLeading(upstream)
-        let dGamma = reduceLeading(upstream.multiplying(cache.normalized))
-
-        let sumDy = reduceOverAxes(upstream, keepdim: true)
-        let sumDyNormalized = reduceOverAxes(upstream.multiplying(cache.normalized), keepdim: true)
-
-        let numerator = upstream.multiplying(nTensor)
-          .subtracting(sumDy)
-          .subtracting(cache.normalized.multiplying(sumDyNormalized))
-        let dx = cache.gammaB
-          .dividing(cache.denom)
-          .multiplying(numerator)
-          .multiplying(invNTensor)
-
-        var tangent = TangentVector.zero
-        tangent.gamma = dGamma
-        tangent.beta = dBeta
-        return (tangent, dx)
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
       }
     )
   }

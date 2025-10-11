@@ -1,193 +1,144 @@
+// Sources/Torch/Modules/Dense.swift
+import Foundation
 import _Differentiation
 
-/// Dense = Linear followed by an activation (no extra parameters).
+/// Public identity activation that’s safe to use across module boundaries.
+@differentiable(reverse)
+public func identityActivation(_ x: Tensor) -> Tensor { x }
+
+@derivative(of: identityActivation)
+public func _vjpIdentityActivation(_ x: Tensor)
+  -> (value: Tensor, pullback: (Tensor) -> Tensor)
+{
+  (x, { v in v })
+}
+
+/// Dense = Linear + activation
 ///
-/// We intentionally avoid storing a `@differentiable` closure in the layer to
-/// sidestep a Differentiation pass assertion in current dev toolchains. Instead,
-/// we carry a tiny activation "kind" and apply it in `call`.
+/// Stores the activation as a non-differentiable closure. Gradients flow through
+/// the closure as long as it is `@differentiable(reverse)`.
 public struct Dense: Layer {
-  // MARK: Activation
-
-  @frozen
-  public enum ActivationKind: Sendable, Equatable {
-    case identity
-    case relu
-    case tanh
-    case sigmoid
-    case exp
-    case log
-    case sqrt
-    case sin
-    case tan
-    case asin
-    case acos
-    case atan
-    case sinh
-    case cosh
-    case asinh
-    case acosh
-    case atanh
-    case erf
-    case erfc
-
-  }
-
-  // MARK: Stored state
-
   public var linear: Linear
-  @noDerivative public var activation: ActivationKind
 
-  // MARK: Inits (no default-argument closures)
+  /// Activation closure. Not a parameter; exclude from tangent.
+  @noDerivative public var activation: @differentiable(reverse) (Tensor) -> Tensor
 
-  @inlinable
-  public init(linear: Linear, activation: ActivationKind) {
-    self.linear = linear
-    self.activation = activation
-  }
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  @inlinable
-  public init(linear: Linear) {
-    self.init(linear: linear, activation: .identity)
-  }
-
-  @inlinable
-  public init(
-    inFeatures: Int,
-    outFeatures: Int,
-    dtype: DType,
-    device: Device,
-    activation: ActivationKind
-  ) {
-    self.linear = .glorot(
-      inFeatures: inFeatures,
-      outFeatures: outFeatures,
-      dtype: dtype,
-      device: device
-    )
-    self.activation = activation
-  }
-
-  @inlinable
-  public init(
-    inFeatures: Int,
-    outFeatures: Int,
-    dtype: DType,
-    device: Device
-  ) {
-    self.init(
-      inFeatures: inFeatures,
-      outFeatures: outFeatures,
-      dtype: dtype,
-      device: device,
-      activation: .identity
-    )
-  }
-
-  @inlinable
-  public init(inFeatures: Int, outFeatures: Int) {
-    self.init(
-      inFeatures: inFeatures,
-      outFeatures: outFeatures,
-      dtype: .float32,
-      device: .cpu,
-      activation: .identity
-    )
-  }
-
-  @inlinable
-  public init(
-    inFeatures: Int,
-    outFeatures: Int,
-    activation: ActivationKind
-  ) {
-    self.init(
-      inFeatures: inFeatures,
-      outFeatures: outFeatures,
-      dtype: .float32,
-      device: .cpu,
-      activation: activation
-    )
-  }
-
-  // MARK: Forward
-
-  @inlinable
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor {
-    applyActivation(linear(x))
-  }
-
-  @inlinable
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor {
-    applyActivation(linear.call(x, context: context))
-  }
-
-  @inlinable
-  @differentiable(reverse)
-  func applyActivation(_ z: Tensor) -> Tensor {
-    switch activation {
-    case .identity: return z
-    case .relu: return z.relu()
-    case .log: return z.log()
-    case .sqrt: return z.sqrt()
-    case .sin: return z.sin()
-    case .tan: return z.tan()
-    case .asin: return z.asin()
-    case .acos: return z.acos()
-    case .atan: return z.atan()
-    case .sinh: return z.sinh()
-    case .cosh: return z.cosh()
-    case .asinh: return z.asinh()
-    case .acosh: return z.acosh()
-    case .atanh: return z.atanh()
-    case .erf: return z.erf()
-    case .erfc: return z.erfc()
-    case .tanh: return z.tanh()
-    case .sigmoid: return z.sigmoid()
-    case .exp: return z.exp()
-
-    }
-  }
-
-  // MARK: Parameter traversal & AD plumbing
-
-  @inlinable
-  public mutating func move(by offset: TangentVector) {
-    linear.move(by: offset.linear)
-  }
-
-  @inlinable
-  public static var parameterKeyPaths: [WritableKeyPath<Dense, Tensor>] {
-    var paths: [WritableKeyPath<Dense, Tensor>] = []
-    for kp in Linear.parameterKeyPaths {
-      paths.append((\Dense.linear).appending(kp))
-    }
-    return paths
-  }
-
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
+  // MARK: - Manual TangentVector
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,
+    KeyPathIterable,
+    VectorProtocol,
+    PointwiseMultiplicative
+  {
+    public typealias VectorSpaceScalar = Float
     public var linear: Linear.TangentVector
 
-    /// Make this explicit so `@inlinable` uses below can reference it.
-    @inlinable
-    public init(linear: Linear.TangentVector) { self.linear = linear }
-
-    @inlinable public static var zero: TangentVector { .init(linear: .zero) }
-    @inlinable public static func + (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
+    public init(linear: Linear.TangentVector = .zero) {
+      self.linear = linear
+    }
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self {
       .init(linear: lhs.linear + rhs.linear)
     }
-    @inlinable public static func - (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
+    public static func - (lhs: Self, rhs: Self) -> Self {
       .init(linear: lhs.linear - rhs.linear)
     }
 
-    @inlinable
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] {
-      var paths: [WritableKeyPath<TangentVector, Tensor>] = []
-      for kp in Linear.TangentVector.parameterKeyPaths {
-        paths.append((\TangentVector.linear).appending(kp))
-      }
-      return paths
+    // VectorProtocol (scalar ops) – delegate to the nested vector
+    public func adding(_ x: Float) -> Self { .init(linear: linear.adding(x)) }
+    public func subtracting(_ x: Float) -> Self { .init(linear: linear.subtracting(x)) }
+    public func scaled(by s: Float) -> Self { .init(linear: linear.scaled(by: s)) }
+
+    // PointwiseMultiplicative (.* / one / reciprocal) – delegate
+    public static var one: Self { .init(linear: .one) }
+    public var reciprocal: Self { .init(linear: linear.reciprocal) }
+    public static func .* (lhs: Self, rhs: Self) -> Self { .init(linear: lhs.linear .* rhs.linear) }
+  }
+
+  public mutating func move(by d: TangentVector) {
+    linear.move(by: d.linear)
+  }
+
+  // MARK: - Initializers
+
+  /// Glorot/Xavier uniform on `Linear` + configurable activation (defaults to identity).
+  public init(
+    inputSize inFeatures: Int,
+    outputSize outFeatures: Int,
+    activation: @escaping @differentiable(reverse) (Tensor) -> Tensor = identityActivation,
+    dtype: DType = .float32,
+    device: Device = .cpu
+  ) {
+    self.linear = Linear(
+      inputSize: inFeatures, outputSize: outFeatures, dtype: dtype, device: device)
+    self.activation = activation
+  }
+
+  // Convenience factories for common activations you already use.
+  public static func tanh(
+    inputSize: Int, outputSize: Int, dtype: DType = .float32, device: Device = .cpu
+  ) -> Dense {
+    Dense(
+      inputSize: inputSize, outputSize: outputSize, activation: { $0.tanh() }, dtype: dtype,
+      device: device)
+  }
+
+  public static func sigmoid(
+    inputSize: Int, outputSize: Int, dtype: DType = .float32, device: Device = .cpu
+  ) -> Dense {
+    Dense(
+      inputSize: inputSize, outputSize: outputSize, activation: { $0.sigmoid() }, dtype: dtype,
+      device: device)
+  }
+
+  /// If your `Tensor` exposes `relu()`, you can use:
+  public static func relu(
+    inputSize: Int, outputSize: Int, dtype: DType = .float32, device: Device = .cpu
+  ) -> Dense {
+    Dense(
+      inputSize: inputSize, outputSize: outputSize, activation: { $0.relu() }, dtype: dtype,
+      device: device)
+  }
+
+  // MARK: - Forward
+
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    activation(linear(x))
+  }
+}
+
+// MARK: - Manual derivatives (avoid curried-self path)
+extension Dense {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (
+      value: Tensor,
+      pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector)
+    )
+  {
+    func primal(_ s: Dense, _ i: Tensor) -> Tensor {
+      s.activation(s.linear(i))
     }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (y, pb)
+  }
+
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor.TangentVector) -> TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }

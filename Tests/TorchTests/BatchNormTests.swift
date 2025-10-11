@@ -15,14 +15,15 @@ func bn1d_training_forward_matches_manual() throws {
       3.0, 4.0, 5.0,
     ], shape: [2, 3], dtype: .float64)
 
-  var bn = BatchNorm1D(numFeatures: 3, momentum: 0.1, epsilon: 1e-5, dtype: .float64)
+  var bn = BatchNorm(channels: 3, momentum: 0.1, epsilon: 1e-5, dtype: .float64)
 
   // Choose nontrivial affine parameters.
-  bn.weight = Tensor(array: [1.0, 2.0, -1.0], shape: [3], dtype: .float64)
-  bn.bias = Tensor(array: [0.5, -0.25, 0.0], shape: [3], dtype: .float64)
+  bn.gamma = Tensor(array: [1.0, 2.0, -1.0], shape: [3], dtype: .float64)
+  bn.beta = Tensor(array: [0.5, -0.25, 0.0], shape: [3], dtype: .float64)
 
-  let ctx = ForwardContext(training: true)
-  let (_, pb) = valueWithPullback(at: bn) { m in m.call(x, context: ctx).sum() }
+  let (_, pb) = withLearningPhase(.training) {
+    valueWithPullback(at: bn) { m in m(x).sum() }
+  }
   let g = pb(Tensor(1.0, dtype: .float64))
 
   // Analytic for L = sum(gamma * z + beta): dL/dgamma = sum(z), dL/dbeta = number of elements
@@ -34,8 +35,8 @@ func bn1d_training_forward_matches_manual() throws {
   let expected_dgamma = z.sum(dim: 0)
   let expected_dbeta = Tensor.full(Double(x.shape[0]), shape: [x.shape[1]])
 
-  #expect(g.weight.isClose(to: expected_dgamma, rtol: 1e-12, atol: 1e-12, equalNan: false))
-  #expect(g.bias.isClose(to: expected_dbeta, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(g.gamma.isClose(to: expected_dgamma, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(g.beta.isClose(to: expected_dbeta, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
 @Test("BatchNorm1D: running stats are updated in training")
@@ -46,11 +47,13 @@ func bn1d_running_stats_update() throws {
       2.0, 3.0,
     ], shape: [2, 2], dtype: .float64)
 
-  let mom = 0.1
-  let bn = BatchNorm1D(numFeatures: 2, momentum: mom, epsilon: 1e-5, dtype: .float64)
-
-  let ctx = ForwardContext(training: true)
-  _ = bn.call(x, context: ctx)
+  let mom: Float = 0.1
+  var bn = BatchNorm(channels: 2, momentum: mom, epsilon: 1e-5, dtype: .float64)
+  bn = withLearningPhase(.training) {
+    let layer = bn
+    _ = layer(x)
+    return layer
+  }
 
   let m = x.mean(dim: 0)
   let centered = x.subtracting(m.reshaped([1, 2]))
@@ -61,7 +64,7 @@ func bn1d_running_stats_update() throws {
     v.multiplying(mom))
 
   #expect(bn.runningMean.value.isClose(to: expectedMean, rtol: 1e-12, atol: 1e-12, equalNan: false))
-  #expect(bn.runningVar.value.isClose(to: expectedVar, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(bn.runningVariance.value.isClose(to: expectedVar, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
 // ---------- BatchNorm2D ----------
@@ -75,13 +78,11 @@ func bn2d_training_forward_matches_manual_nchw() throws {
   let x = Tensor.arange(Double(0), to: Double(N * C * H * W), step: 1, dtype: .float64)
     .reshaped([N, C, H, W])
 
-  var bn = BatchNorm2D(
-    numFeatures: C, momentum: 0.1, epsilon: 1e-5, dataFormat: .nchw, dtype: .float64)
-  bn.weight = Tensor(array: [1.5, -0.5], shape: [C], dtype: .float64)
-  bn.bias = Tensor(array: [0.1, 0.3], shape: [C], dtype: .float64)
+  var bn = BatchNorm(channels: C, momentum: 0.1, epsilon: 1e-5, dtype: .float64)
+  bn.gamma = Tensor(array: [1.5, -0.5], shape: [C], dtype: .float64)
+  bn.beta = Tensor(array: [0.1, 0.3], shape: [C], dtype: .float64)
 
-  let ctx = ForwardContext(training: true)
-  let y = bn.call(x, context: ctx)
+  let y = withLearningPhase(.training) { bn(x) }
 
   // Manual stats over N,H,W
   var mean = x
@@ -91,8 +92,8 @@ func bn2d_training_forward_matches_manual_nchw() throws {
   for d in [0, 2, 3].sorted(by: >) { varT = varT.mean(dim: d) }  // [C]
   let denom = varT.adding(1e-5).sqrt().reshaped([1, C, 1, 1])
   let norm = centered.dividing(denom)
-  let expected = norm.multiplying(bn.weight.reshaped([1, C, 1, 1])).adding(
-    bn.bias.reshaped([1, C, 1, 1]))
+  let expected = norm.multiplying(bn.gamma.reshaped([1, C, 1, 1])).adding(
+    bn.beta.reshaped([1, C, 1, 1]))
 
   #expect(y.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
@@ -107,20 +108,20 @@ func bn2d_nhwc_parity() throws {
     .reshaped([N, C, H, W])
   let xNHWC = xNCHW.permuted([0, 2, 3, 1])
 
-  var bnNCHW = BatchNorm2D(numFeatures: C, dataFormat: .nchw, dtype: .float64)
-  var bnNHWC = BatchNorm2D(numFeatures: C, dataFormat: .nhwc, dtype: .float64)
+  var bnNCHW = BatchNorm(channels: C, dtype: .float64)
+  var bnNHWC = bnNCHW
 
   // Same affine and same initial running stats
   let w = Tensor(array: [1.25, -0.75], shape: [C], dtype: .float64)
   let b = Tensor(array: [0.2, -0.1], shape: [C], dtype: .float64)
-  bnNCHW.weight = w
-  bnNCHW.bias = b
-  bnNHWC.weight = w
-  bnNHWC.bias = b
+  bnNCHW.gamma = w
+  bnNCHW.beta = b
+  bnNHWC.gamma = w
+  bnNHWC.beta = b
 
-  let ctx = ForwardContext(training: true)
-  let yNCHW = bnNCHW.call(xNCHW, context: ctx)  // [N,C,H,W]
-  let yNHWC = bnNHWC.call(xNHWC, context: ctx)  // [N,H,W,C]
+  let yNCHW = withLearningPhase(.training) { bnNCHW(xNCHW) }  // [N,C,H,W]
+  let yNHWC = withLearningPhase(.training) { bnNHWC(xNHWC.permuted([0, 3, 1, 2])) }
+    .permuted([0, 2, 3, 1])
   #expect(
     yNHWC.permuted([0, 3, 1, 2]).isClose(to: yNCHW, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
@@ -137,24 +138,23 @@ func bn2d_eval_uses_running_stats() throws {
       2.0, 3.0, 4.0, 5.0,
     ], shape: [N, C, H, W], dtype: .float64)
 
-  var bn = BatchNorm2D(
-    numFeatures: C, momentum: 0.1, epsilon: 1e-5, dataFormat: .nchw, dtype: .float64)
-  bn.weight = Tensor(array: [2.0], shape: [C], dtype: .float64)
-  bn.bias = Tensor(array: [0.5], shape: [C], dtype: .float64)
+  var bn = BatchNorm(channels: C, momentum: 0.1, epsilon: 1e-5, dtype: .float64)
+  bn.gamma = Tensor(array: [2.0], shape: [C], dtype: .float64)
+  bn.beta = Tensor(array: [0.5], shape: [C], dtype: .float64)
 
   // One training pass to update running stats
-  _ = bn.call(x, context: ForwardContext(training: true))
+  _ = withLearningPhase(.training) { bn(x) }
 
   // Now eval; must use running stats
   let yEval = bn(x)  // callAsFunction (eval)
   let m = bn.runningMean.value
-  let v = bn.runningVar.value
+  let v = bn.runningVariance.value
   let expected =
     x
     .subtracting(m.reshaped([1, C, 1, 1]))
     .dividing(v.adding(1e-5).sqrt().reshaped([1, C, 1, 1]))
-    .multiplying(bn.weight.reshaped([1, C, 1, 1]))
-    .adding(bn.bias.reshaped([1, C, 1, 1]))
+    .multiplying(bn.gamma.reshaped([1, C, 1, 1]))
+    .adding(bn.beta.reshaped([1, C, 1, 1]))
 
   #expect(yEval.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }

@@ -8,7 +8,8 @@ extension Tensor {
   @inlinable
   public func expanded(to shape: [Int], implicit: Bool = false) -> Tensor {
     var s64 = shape.map(Int64.init)
-    return Tensor(_impl.expand(&s64, s64.count, implicit))
+    let allowImplicit = implicit || shape.count != self.rank
+    return Tensor(_impl.expand(&s64, s64.count, allowImplicit))
   }
 
   /// Expand singleton dimensions to match the layout of another tensor. Returns a view when possible.

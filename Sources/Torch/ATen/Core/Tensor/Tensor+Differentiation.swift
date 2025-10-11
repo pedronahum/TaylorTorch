@@ -4,8 +4,8 @@
 
   // ✅ Step 1: Add AdditiveArithmetic conformance
   extension Tensor: AdditiveArithmetic {
-    /// Additive identity represented as a rank-0 integer tensor.
-    public static var zero: Tensor { Tensor(Int32(0)) }
+    /// Additive identity represented as a scalar float tensor (matches most model parameters).
+    public static var zero: Tensor { Tensor(0, dtype: .float32) }
   }
 
   // ✅ Step 2: Differentiable conformance

@@ -1,81 +1,43 @@
 # Layers
 
-TaylorTorch’s `Modules/Layers` directory houses the differentiable building blocks used to compose models. Every type conforms to the shared `Layer` protocol, so:
+This folder now contains the distilled set of differentiable building blocks that ship with TaylorTorch. Every Swift file defines one or more types that conform to `Layer` (or `ParameterlessLayer`) and provide reverse-mode `callAsFunction(_:)` implementations paired with explicit pullbacks when broadcasting, masking, or view reshaping is involved.
 
-- Parameters are discoverable through key-path traversal (`ParameterIterable`).
-- Reverse-mode derivatives are available out of the box (custom pullbacks are supplied where broadcasting or masking require them).
-- Context-aware variants can react to `ForwardContext(training:)`, while the pure `callAsFunction(_:)` entry point stays deterministic and side-effect free for inference.
+## Files at a glance
+
+| File | Highlights |
+| --- | --- |
+| `Activations.swift` | Smooth activation layers (ReLU, LeakyReLU, SiLU, ELU, GELU, Tanh, Sigmoid, Softplus, Softmax/LogSoftmax) plus differentiable helpers used across tests. |
+| `BatchNorm.swift` | Feature-wise batch normalisation with running statistics, affine parameters, and training/inference behaviour driven by `withLearningPhase`. |
+| `Dense.swift` | A lightweight MLP block (`Linear` + activation closure) that now uses the `[in, out]` weight layout to match the tests and examples. |
+| `Dropout.swift` | Inverted dropout conforming to `ParameterlessLayer`, gated entirely by `Context.local.learningPhase`. |
+| `GroupNorm.swift` | Group normalisation over arbitrary axes with shape-safe regrouping and hand-written pullbacks. |
+| `LayerNorm.swift` | Per-sample normalisation across selectable axes; gradients stay stable thanks to explicit broadcasting logic. |
+| `Linear.swift` | Core affine transform (`x.matmul(W) + b`) with a custom tangent vector so optimisers (`SGD`, `Adam`) can consume gradients directly. |
+| `MultiHeadAttention.swift` | Transformer attention primitive: head splitting/combining utilities, differentiable `Input` wrappers, and numerically stable softmax. |
+| `NNLayers.swift` | Convolution/pooling utilities (`Conv2D`, `MaxPool2D`, `AvgPool2D`, `Flatten`) exposing parameterless tangents while driving ATen kernels. |
+| `Recurrent.swift` | RNN cell scaffolds plus `BasicRNNCell`, `LSTMCell`, and `GRUCell` implementations with mergeable state tangents. |
+| `Sequential.swift` | Building blocks for chaining layers driven by the `@SequentialBuilder` result builder, wrapping a single generic `Sequential<Body>`. |
+
+## Implementation notes
+
+- **Parameterless layers** (Dropout, MaxPool2D, AvgPool2D, Flatten, Identity) explicitly set `TangentVector == EmptyTangentVector`, ensuring their pullbacks align with the `Layer` protocol.
+- **Shape/device reads** that are only needed for validation are wrapped in `withoutDerivative(at:)`, keeping the AD graph lean while still allowing runtime checks.
+- **Manual pullbacks** implemented via `valueWithPullback` appear wherever tensor views, masking, or scatter-style ops would otherwise lose gradient information (attention, normalisation, Softplus, pooling).
+
+## Quick example
 
 ```swift
 import Torch
 
-let ctx = ForwardContext(training: true)
+let encoder = Sequential {
+  Linear(inputSize: 128, outputSize: 256)
+  Activations.relu
+  LayerNorm(featureCount: 256)
+  Dropout(probability: 0.1)
+}
 
-var embed = Embedding(numEmbeddings: 10, embeddingDim: 4)
-var block = Sequential(
-  embed,
-  Permute([0, 2, 1]),
-  Flatten(startDim: 1),
-  Linear(weight: W, bias: b)
-)
-
-let logits = block(tokens, context: ctx)
+let x = Tensor.randn(shape: [32, 128])
+let y = encoder(x)  // differentiable end-to-end
 ```
 
-## Core feed-forward blocks
-
-- `Linear.swift` – Dense affine transformation (`x.matmul(W.T) + b`) with differentiable parameter updates.
-- `Dense.swift` – Convenience wrapper around `Linear` that wires in an activation closure (ReLU, GELU, etc.) and ships Glorot initialisers.
-- `Sequential.swift` / `Sequential+Context.swift` – Generic two-layer composition. The contextual overload makes composite stacks (Dropout → BatchNorm → Linear) respect `ForwardContext`.
-- `Embedding.swift` – Trainable lookup table that gathers integer IDs into dense vectors, supports optional `paddingIndex`, and scatters gradients with accumulation semantics.
-
-## Convolution and pooling
-
-- `Conv2D.swift` – 2D convolution with stride, padding, dilation, groups, and configurable data format (NCHW/NHWC).
-- `DepthwiseSeparableConv2D.swift` – MobileNet-style depthwise + pointwise stack with shared `ForwardContext` support and optional fused activations.
-- `Pooling.swift` – `MaxPool2D` and `AvgPool2D` layers that mirror the ATen operators while providing context-aware composition.
-- `DataFormat.swift` – Shared enum describing tensor memory layouts so convolution, pooling, and normalization layers agree on axis order.
-
-## Normalisation suites
-
-- `BatchNorm.swift` – `BatchNorm1D`/`2D` with affine parameters, running statistics, and contextual behaviour (updates only while `training == true`).
-- `LayerNorm.swift` – Stateless per-sample normalisation across trailing axes with custom VJP to handle broadcasting.
-- `GroupNorm.swift` – Channel grouping normalisation with NHWC/NCHW support and padding-aware gradients.
-- `RMSNorm.swift` – Root-mean-square normalisation with learnable scale/offset, commonly used in transformer blocks.
-
-## Activation layers
-
-- `Activations.swift` – Parameter-free wrappers for smooth activations (ReLU, Tanh, Sigmoid, SiLU, Softplus, GELU exact/approx). Exposed both as functional helpers (`Activations.relu(x)`) and `Layer` types (e.g. `ReLU()`).
-- `HardActivations.swift` – Piecewise-linear variants (`HardTanh`, `HardSigmoid`, `HardSwish`) plus `ELU`, all differentiable and compatible with sequential composition.
-
-## Shape & layout utilities
-
-- `Flatten.swift` – Collapses a contiguous range of dimensions (default: all but batch) while keeping AD-friendly reshaping.
-- `Reshape.swift` – Stateless reshape that supports a single `-1` inferred dimension and validates element counts.
-- `Permute.swift` – Axis reordering layer with permutation validation and inverse-gradient semantics.
-- `Squeeze.swift` / `Unsqueeze` – Drop or insert singleton dimensions, handy for glueing CNN and MLP components.
-
-## Miscellaneous helpers
-
-- `Dropout.swift` – Inverted dropout with optional deterministic mask factory for testing.
-- `GroupNorm.swift`, `LayerNorm.swift`, `RMSNorm.swift` (see above) – provide the smoothing necessary for transformer-style architectures.
-- `Identity` lives alongside these helpers (see `Modules/Combinators`) for no-op placeholders and residual wiring.
-
-## Support folders inside `Modules/`
-
-- `Builders/` – Contains `LayerBuilder.swift`, the result-builder DSL that lowers declarative blocks into nested `Sequential` chains.
-- `Combinators/` – Higher-order modules (`Identity`, `Residual`, `ParallelAdd`, `Concat`) for wiring together submodels without leaving the differentiable world.
-- `Context/` – Defines `ForwardContext`, the lightweight training/inference flag that contextual layers use to toggle behaviour.
-- `Shape/` – Reserved for additional pure shape helpers that complement the layer-level utilities above.
-
-## Working with ForwardContext
-
-Any layer implementing the contextual `call(_:context:)` overload can respond to training/eval mode. Prefer `layer(x, context: ctx)` inside training loops and the pure `layer(x)` otherwise. Sequential containers forward `ForwardContext` automatically so deeper stacks stay in sync.
-
-## Implementation patterns
-
-- Stateful layers wrap mutable tensors in `_TensorBox` to remain differentiable while bypassing Swift’s copy-on-write semantics.
-- Gradient-critical utilities (GELU, RMSNorm, Embedding, etc.) supply custom VJPs so broadcasting, scatter-add, or masking semantics are handled explicitly.
-- All layers provide a `TangentVector` that mirrors stored parameters; optimisers supplied elsewhere in TaylorTorch use these key paths to perform updates without bespoke plumbing.
-
-This collection covers the common NN toolbox—linear blocks, embeddings, activations, normalisation, convolution/pooling, and shape transforms—while maintaining “Swift native” ergonomics for differentiable programming.
+Together these sources form the essential toolkit—dense blocks, attention, recurrent state, convolution + pooling, normalisation, activations, dropout, and sequential composition—ready to plug into `GraphNetwork`, Transformers, or any custom TaylorTorch model.

@@ -20,7 +20,9 @@ func layerNormNormalizesLastDim() throws {
       -1.0, 0.0, 1.0,
       2.0, 4.0, 6.0,
     ], shape: [2, 3])
-  let ln = LayerNorm(featureCount: 3, epsilon: 0.0)
+  var ln = LayerNorm(featureCount: 3, epsilon: 0.0)
+  ln.gamma = Tensor.ones(shape: [3], dtype: .float64)
+  ln.beta = Tensor.zeros(shape: [3], dtype: .float64)
   let y = ln(x)
 
   // Each row has ~zero mean and unit variance.
@@ -75,9 +77,9 @@ func layerNormParameterGradients() throws {
   let dGamma = g.gamma.sum(dim: 0)
   let dBeta = g.beta
 
-  let expectedGamma = Tensor.zeros(shape: [3], dtype: dGamma.dtype ?? .float32, device: dGamma.device)
+  let expectedGamma = Tensor.zeros(
+    shape: [3], dtype: dGamma.dtype ?? .float32, device: dGamma.device)
   let expectedBeta = Tensor.full(Double(x.shape[0]), shape: [3], device: dBeta.device)
-    .to(dtype: dBeta.dtype ?? .float32)
 
   #expect(dGamma.isClose(to: expectedGamma, rtol: 1e-6, atol: 1e-6, equalNan: false))
   #expect(dBeta.isClose(to: expectedBeta, rtol: 1e-6, atol: 1e-6, equalNan: false))
@@ -88,7 +90,7 @@ func layerNormContextualCallMatches() throws {
   let x = Tensor.arange(Double(0), to: Double(12), step: Double(1)).reshaped([2, 2, 3])
   let ln = LayerNorm(featureCount: 3, epsilon: 1e-5)
   let y1 = ln(x)
-  let y2 = ln.call(x, context: .init(training: true))
+  let y2 = withLearningPhase(.training) { ln(x) }
   #expect(y1.isClose(to: y2, rtol: 0, atol: 0, equalNan: false))
 }
 

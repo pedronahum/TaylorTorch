@@ -1,95 +1,219 @@
-// Sources/Torch/Modules/Layers/Sequential.swift
+import Foundation
 import _Differentiation
 
-/// Chains two layers such that the output of `L1` feeds into `L2`.
-public struct Sequential<L1: Layer, L2: Layer>: Layer {
-  /// First layer in the composition.
-  public var l1: L1
-  /// Second layer in the composition.
-  public var l2: L2
+// MARK: - Identity (parameterless pass-through)
 
-  /// Creates a sequential composition of `l1` followed by `l2`.
-  /// - Parameters:
-  ///   - l1: Leading layer.
-  ///   - l2: Trailing layer that consumes the output of `l1`.
-  public init(_ l1: L1, _ l2: L2) {
-    self.l1 = l1
-    self.l2 = l2
-  }
+/// A parameterless layer that returns its input unchanged.
+public struct Identity<IO: Differentiable>: ParameterlessLayer {
+  public typealias Input = IO
+  public typealias Output = IO
+  public typealias TangentVector = EmptyTangentVector
 
-  /// Applies the composed layers to `x`.
-  /// - Parameter x: Input tensor.
-  /// - Returns: Output of `l2(l1(x))`.
+  public init() {}
+
   @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor {
-    l2(l1(x))
-  }
+  public func callAsFunction(_ x: IO) -> IO { x }
 
-  /// Applies the tangent `offset` to both layers.
-  /// - Parameter offset: Tangent vector produced by differentiation.
-  public mutating func move(by offset: TangentVector) {
-    self.l1.move(by: offset.l1)
-    self.l2.move(by: offset.l2)
-  }
+}
 
-  // Corrected syntax with parentheses to disambiguate the method call.
-  /// Writable key paths for the composed layers' parameters.
-  public static var parameterKeyPaths: [WritableKeyPath<Sequential, Tensor>] {
-    var paths: [WritableKeyPath<Sequential, Tensor>] = []
-    for kp in L1.parameterKeyPaths {
-      paths.append((\Sequential.l1).appending(kp))
-    }
-    for kp in L2.parameterKeyPaths {
-      paths.append((\Sequential.l2).appending(kp))
-    }
-    return paths
-  }
-
-  /// Tangent representation for `Sequential`.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Tangent for the leading layer.
-    public var l1: L1.TangentVector
-    /// Tangent for the trailing layer.
-    public var l2: L2.TangentVector
-
-    /// Additive identity for the tangent vector.
-    public static var zero: TangentVector {
-      TangentVector(l1: .zero, l2: .zero)
-    }
-
-    /// Adds two tangent vectors element-wise.
-    public static func + (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
-      TangentVector(l1: lhs.l1 + rhs.l1, l2: lhs.l2 + rhs.l2)
-    }
-
-    /// Subtracts two tangent vectors element-wise.
-    public static func - (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
-      TangentVector(l1: lhs.l1 - rhs.l1, l2: lhs.l2 - rhs.l2)
-    }
-
-    // Corrected syntax with parentheses to disambiguate the method call.
-    /// Writable key paths for the tangent components.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] {
-      var paths: [WritableKeyPath<TangentVector, Tensor>] = []
-      for kp in L1.TangentVector.parameterKeyPaths {
-        paths.append((\Self.l1).appending(kp))
+extension Sequential {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Input)
+    -> (
+      value: Output,
+      pullback: (Output.TangentVector) -> (TangentVector, Input.TangentVector)
+    )
+  {
+    // Differentiate through the stored `body` directly.
+    let (y, bodyPB) = body.appliedForBackpropagation(to: x)
+    return (
+      y,
+      { v in
+        let (dBody, dX) = bodyPB(v)  // dBody : Body.TangentVector
+        return (
+          TangentVector(body: dBody),  // wrap into Sequential.TangentVector
+          dX
+        )
       }
-      for kp in L2.TangentVector.parameterKeyPaths {
-        paths.append((\Self.l2).appending(kp))
+    )
+  }
+
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Input)
+    -> (
+      value: Output,
+      pullback: (Output.TangentVector) -> TangentVector
+    )
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
       }
-      return paths
-    }
+    )
   }
 }
 
-// Convenience: chain operator for readability.
-infix operator >>> : AdditionPrecedence
-@inlinable
-/// Returns a two-layer sequential composition using the chaining operator.
-/// - Parameters:
-///   - lhs: Leading layer.
-///   - rhs: Trailing layer.
-/// - Returns: `Sequential(lhs, rhs)`.
-public func >>> <A: Layer, B: Layer>(lhs: A, rhs: B) -> Sequential<A, B> {
-  .init(lhs, rhs)
+// MARK: - Chain (two-layer composition with explicit tangent)
+
+/// Compose two layers `First` → `Second` such that `First.Output == Second.Input`.
+public struct Chain<First: Layer, Second: Layer>: Layer where First.Output == Second.Input {
+  public var first: First
+  public var second: Second
+
+  public init(_ first: First, _ second: Second) {
+    self.first = first
+    self.second = second
+  }
+
+  public typealias Input = First.Input
+  public typealias Output = Second.Output
+
+  // Manual TangentVector to avoid synthesis pitfalls and guarantee AdditiveArithmetic witnesses.
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,  // explicit zero/+/- to avoid solver corner cases
+    KeyPathIterable,  // required by Module
+    VectorProtocol,  // required by Module
+    PointwiseMultiplicative  // required by Module
+  {
+    public typealias VectorSpaceScalar = Float
+    public var first: First.TangentVector
+    public var second: Second.TangentVector
+
+    public init(first: First.TangentVector = .zero, second: Second.TangentVector = .zero) {
+      self.first = first
+      self.second = second
+    }
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self {
+      .init(first: lhs.first + rhs.first, second: lhs.second + rhs.second)
+    }
+    public static func - (lhs: Self, rhs: Self) -> Self {
+      .init(first: lhs.first - rhs.first, second: lhs.second - rhs.second)
+    }
+  }
+
+  public mutating func move(by d: TangentVector) {
+    first.move(by: d.first)
+    second.move(by: d.second)
+  }
+
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Input) -> Output {
+    let y = first(x)
+    return second(y)
+  }
+
+  // Manual VJPs to avoid “curried self” solver path.
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Input)
+    -> (
+      value: Output,
+      pullback: (Output.TangentVector) -> (TangentVector, Input.TangentVector)
+    )
+  {
+    // Forward through first, then second.
+    let y1 = first(x)
+    let (y, pbSecond) = second.appliedForBackpropagation(to: y1)
+    return (
+      y,
+      { v in
+        // Backprop through second, then first.
+        let (dSecond, dY1) = pbSecond(v)
+        let (_, pbFirst) = first.appliedForBackpropagation(to: x)
+        let (dFirst, dX) = pbFirst(dY1)
+        return (TangentVector(first: dFirst, second: dSecond), dX)
+      }
+    )
+  }
+
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Input)
+    -> (value: Output, pullback: (Output.TangentVector) -> TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
+
+// MARK: - Result builder for sequential models
+
+@resultBuilder
+public enum SequentialBuilder {
+  /// First element starts the chain as-is.
+  public static func buildPartialBlock<First: Layer>(first: First) -> First { first }
+
+  /// Append the next layer, ensuring the types line up: `Accum.Output == Next.Input`.
+  public static func buildPartialBlock<Accum: Layer, Next: Layer>(
+    accumulated: Accum, next: Next
+  ) -> Chain<Accum, Next> where Accum.Output == Next.Input {
+    Chain(accumulated, next)
+  }
+
+  // If you later want `if`/`else` in builders, add:
+  // public static func buildEither<TrueBranch: Layer, FalseBranch: Layer>(
+  //   first: TrueBranch
+  // ) -> TrueBranch { first }
+  // public static func buildEither<TrueBranch: Layer, FalseBranch: Layer>(
+  //   second: FalseBranch
+  // ) -> FalseBranch { second }
+  //
+  // And possibly buildOptional/buildArray with an Identity wrapper.
+}
+
+// MARK: - Sequential (thin, differentiable wrapper over the built chain)
+
+/// A “Swifty” sequential container built via `@SequentialBuilder`.
+///
+/// Usage:
+/// ```swift
+/// let model = Sequential {
+///   Linear(inFeatures: 128, outFeatures: 256)
+///   ReLU()
+///   Linear(inFeatures: 256, outFeatures: 10)
+/// }
+/// let logits = model(x)
+/// ```
+public struct Sequential<Body: Layer>: Layer {
+  public var body: Body
+
+  public init(@SequentialBuilder _ layers: () -> Body) {
+    self.body = layers()
+  }
+
+  public typealias Input = Body.Input
+  public typealias Output = Body.Output
+
+  // Manual TangentVector: a simple pass-through to Body’s tangent.
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,
+    KeyPathIterable,
+    VectorProtocol,
+    PointwiseMultiplicative
+  {
+    public typealias VectorSpaceScalar = Float
+    public var body: Body.TangentVector
+
+    public init(body: Body.TangentVector = .zero) { self.body = body }
+
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self { .init(body: lhs.body + rhs.body) }
+    public static func - (lhs: Self, rhs: Self) -> Self { .init(body: lhs.body - rhs.body) }
+  }
+
+  public mutating func move(by d: TangentVector) { body.move(by: d.body) }
+
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Input) -> Output { body(x) }
+
 }

@@ -1,469 +1,383 @@
-// Sources/Torch/Modules/Layers/BatchNorm.swift
-//
-// BatchNorm1D / BatchNorm2D with context-driven training/inference behavior.
-// - Train: normalize with batch stats; update running stats (momentum).
-// - Eval : normalize with running stats.
-// - Affine scale/shift are trainable parameters; running stats are not.
-//
-// Integrates with:
-//  - Layer + ForwardContext (training gate).               (see: Layer.swift, ForwardContext.swift)
-//  - ParameterIterable / EuclideanModel for optimizers.    (see: ParameterIterable.swift, EuclideanModel.swift)
-//  - DataFormat for 2D (NCHW/NHWC).                        (see: DataFormat.swift)
-
+import Foundation
 import _Differentiation
 
-// Small reference wrapper to allow in-place state updates from a non-mutating call.
-/// A mutable reference wrapper around a tensor used for stateful statistics.
-public final class _TensorBox {
-  /// The wrapped tensor value.
-  public var value: Tensor
-  /// Creates a tensor box that holds `value`.
-  /// - Parameter value: Initial tensor stored inside the box.
-  public init(_ value: Tensor) { self.value = value }
-}
+/// Batch Normalization over channel dimension (NCHW...).
+///
+/// Shapes:
+///   - Rank-2 (MLP): x [N, C]
+///   - Rank-4 (Conv): x [N, C, H, W]
+///
+/// Training:
+///   y = (x - μ_B) / sqrt(σ_B^2 + ε) * γ + β
+/// Inference:
+///   y = (x - runningMean) / sqrt(runningVar + ε) * γ + β
+public struct BatchNorm: Layer {
+  // Trainable affine parameters
+  public var gamma: Tensor  // [C]
+  public var beta: Tensor  // [C]
 
-// MARK: - BatchNorm1D  (expects [N, F] — features last)
-
-/// Batch normalization for rank-2 tensors in `[batch, feature]` layout.
-public struct BatchNorm1D: Layer {
-  // Trainable affine params
-  /// Learnable per-feature scaling factors.
-  public var weight: Tensor   // gamma [F]
-  /// Learnable per-feature offsets.
-  public var bias: Tensor     // beta  [F]
-
-  // Non-trainable running stats (per-feature)
-  /// Exponential moving average of feature means.
-  @noDerivative public var runningMean: _TensorBox // [F]
-  /// Exponential moving average of feature variances.
-  @noDerivative public var runningVar: _TensorBox  // [F]
+  // Running statistics (updated in training; read in inference)
+  @noDerivative public var runningMean: Parameter  // [C]
+  @noDerivative public var runningVariance: Parameter  // [C]
 
   // Hyper-parameters
-  /// Momentum used to update the running statistics.
-  @noDerivative public var momentum: Double   // smoothing factor (≈ PyTorch's 0.1)
-  /// Numerical stability constant added to the variance.
-  @noDerivative public var epsilon: Double    // numerical stability (e.g. 1e-5)
+  @noDerivative public var momentum: Float
+  @noDerivative public var epsilon: Float
+  @noDerivative public var affine: Bool
 
-  /// Creates a batch-normalization layer for features stored in the last dimension.
-  /// - Parameters:
-  ///   - numFeatures: Number of feature channels to normalize.
-  ///   - momentum: Momentum factor applied when updating running statistics.
-  ///   - epsilon: Small constant added to variances to ensure stability.
-  ///   - dtype: Element type for parameters and running statistics.
-  ///   - device: Device on which to allocate tensors.
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+
+  // MARK: - Manual TangentVector (avoid synthesis)
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,
+    KeyPathIterable,
+    VectorProtocol,
+    PointwiseMultiplicative
+  {
+    public typealias VectorSpaceScalar = Float
+    public var gamma: Tensor
+    public var beta: Tensor
+
+    public init(gamma: Tensor = Tensor(0), beta: Tensor = Tensor(0)) {
+      self.gamma = gamma
+      self.beta = beta
+    }
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self {
+      .init(
+        gamma: Self.binaryOp(lhs.gamma, rhs.gamma, +, label: "gamma"),
+        beta: Self.binaryOp(lhs.beta, rhs.beta, +, label: "beta"))
+    }
+    public static func - (lhs: Self, rhs: Self) -> Self {
+      .init(
+        gamma: Self.binaryOp(lhs.gamma, rhs.gamma, -, label: "gamma"),
+        beta: Self.binaryOp(lhs.beta, rhs.beta, -, label: "beta"))
+    }
+
+    @inline(__always)
+    private static func binaryOp(
+      _ lhs: Tensor, _ rhs: Tensor,
+      _ op: (Tensor, Tensor) -> Tensor,
+      label: StaticString
+    ) -> Tensor {
+      var left = lhs
+      var right = rhs
+
+      let reference = right.count >= left.count ? right : left
+      let targetDevice = reference.device
+      let targetDType = reference.dtype ?? left.dtype ?? right.dtype
+
+      if left.device != targetDevice { left = left.to(device: targetDevice) }
+      if right.device != targetDevice { right = right.to(device: targetDevice) }
+
+      if let dtype = targetDType {
+        if left.dtype != dtype { left = left.to(dtype: dtype) }
+        if right.dtype != dtype { right = right.to(dtype: dtype) }
+      }
+
+      if left.shape != right.shape {
+        if left.count == right.count, left.count != 0 {
+          left = left.reshaped(right.shape)
+        } else if left.count == 1, right.count > 1 {
+          let zeros = Tensor.zeros(
+            shape: right.shape,
+            dtype: right.dtype ?? targetDType ?? .float32,
+            device: right.device)
+          left = zeros.adding(left)
+        } else if right.count == 1, left.count > 1 {
+          let zeros = Tensor.zeros(
+            shape: left.shape,
+            dtype: left.dtype ?? targetDType ?? .float32,
+            device: left.device)
+          right = zeros.adding(right)
+        } else if left.count == right.count, left.count == 0 {
+          // Nothing to do — both are empty tensors but shapes differ.
+        } else {
+          preconditionFailure(
+            "BatchNorm.TangentVector mismatch for \(label): lhs \(left.shape) vs rhs \(right.shape)")
+        }
+      }
+
+      return op(left, right)
+    }
+  }
+
+  public mutating func move(by d: TangentVector) {
+    gamma += Self.alignTangentComponent(d.gamma, to: gamma, label: "gamma")
+    beta += Self.alignTangentComponent(d.beta, to: beta, label: "beta")
+  }
+
+  // MARK: - Init
+
+  /// Create BatchNorm for `channels` with defaults matching PyTorch-style BN.
   public init(
-    numFeatures: Int,
-    momentum: Double = 0.1,
-    epsilon: Double = 1e-5,
+    channels: Int,
+    momentum: Float = 0.1,
+    epsilon: Float = 1e-5,
+    affine: Bool = true,
     dtype: DType = .float32,
     device: Device = .cpu
   ) {
-    self.weight = Tensor.ones(shape: [numFeatures], dtype: dtype, device: device)
-    self.bias   = Tensor.zeros(shape: [numFeatures], dtype: dtype, device: device)
-    self.runningMean = _TensorBox(Tensor.zeros(shape: [numFeatures], dtype: dtype, device: device))
-    self.runningVar  = _TensorBox(Tensor.ones(shape: [numFeatures], dtype: dtype, device: device))
+    self.gamma = Tensor.ones(shape: [channels], dtype: dtype, device: device)
+    self.beta = Tensor.zeros(shape: [channels], dtype: dtype, device: device)
+    self.runningMean = Parameter(Tensor.zeros(shape: [channels], dtype: dtype, device: device))
+    self.runningVariance = Parameter(Tensor.ones(shape: [channels], dtype: dtype, device: device))
     self.momentum = momentum
     self.epsilon = epsilon
+    self.affine = affine
   }
 
-  // Inference path (pure): use running stats
-  /// Normalizes `x` using the stored running statistics (inference path).
-  /// - Parameter x: Input activations with shape `[batch, feature]`.
-  /// - Returns: Batch-normalized activations.
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor {
-    let m = runningMean.value
-    let v = runningVar.value
-    return _batchNorm1D(
-      x, mean: m, variance: v, weight: weight, bias: bias, eps: epsilon)
-  }
-
-  // Training/Eval path with context
-  /// Normalizes `x`, computing batch statistics when `context.training` is `true`.
-  /// - Parameters:
-  ///   - x: Input activations with shape `[batch, feature]`.
-  ///   - context: Forward-context gate that toggles between training and evaluation behavior.
-  /// - Returns: Batch-normalized activations.
-  @differentiable(reverse, wrt: (self, x))
-  public func call(_ x: Tensor, context: @noDerivative ForwardContext) -> Tensor {
-    guard context.training else { return self(x) }
-
-    // Batch stats along the batch axis (dim 0)
-    let batchMean = x.mean(dim: 0)
-    let featureCount1D = withoutDerivative(at: batchMean.shape[0])
-    let batchBroadcastShape = withoutDerivative(at: [1, featureCount1D])
-    let centered = x.subtracting(batchMean.reshaped(batchBroadcastShape))
-    let batchVar = centered.multiplying(centered).mean(dim: 0)
-
-    // Update running stats (non-differentiable state)
-    let (batchMeanND, batchVarND) = withoutDerivative(at: (batchMean, batchVar))
-    let mom = Tensor(momentum).to(dtype: batchMeanND.dtype!).to(device: batchMeanND.device)
-    let oneMinus = Tensor(1.0, dtype: mom.dtype!, device: mom.device).subtracting(mom)
-    runningMean.value = runningMean.value.multiplying(oneMinus).adding(batchMeanND.multiplying(mom))
-    runningVar.value = runningVar.value.multiplying(oneMinus).adding(batchVarND.multiplying(mom))
-
-    return _batchNorm1D(
-      x, mean: batchMean, variance: batchVar, weight: weight, bias: bias, eps: epsilon)
-  }
-
-  // Shared compute
-  /// Performs the core batch-normalization computation.
-  /// - Parameters:
-  ///   - x: Input activations.
-  ///   - mean: Mean used for normalization.
-  ///   - variance: Variance used for normalization.
-  ///   - weight: Per-feature scaling factors.
-  ///   - bias: Per-feature offsets.
-  ///   - eps: Numerical stability constant.
-  /// - Returns: Batch-normalized activations.
-  @differentiable(reverse)
-  private func _batchNorm1D(
-    _ x: Tensor, mean: Tensor, variance: Tensor, weight: Tensor, bias: Tensor, eps: Double
-  ) -> Tensor {
-    let epsTensor = withoutDerivative(at: Tensor(
-      eps,
-      dtype: variance.dtype ?? x.dtype!,
-      device: variance.device
-    ))
-    let featureCount = withoutDerivative(at: weight.shape[0])
-    let broadcastShape = withoutDerivative(at: [1, featureCount])
-    let denom = variance.adding(epsTensor).sqrt().reshaped(broadcastShape)
-    let meanB = mean.reshaped(broadcastShape)
-    let norm = x.subtracting(meanB).dividing(denom)
-    let weightB = weight.reshaped(broadcastShape)
-    let biasB = bias.reshaped(broadcastShape)
-    return norm.multiplying(weightB).adding(biasB)
-  }
-
-  // --- Layer plumbing ---
-  /// Updates the layer's parameters by applying the tangent `offset`.
-  /// - Parameter offset: Derivative information to apply to the parameters.
-  public mutating func move(by offset: TangentVector) {
-    weight.move(by: offset.weight)
-    bias.move(by: offset.bias)
-  }
-  /// Writable key paths for the layer's trainable parameters.
-  public static var parameterKeyPaths: [WritableKeyPath<BatchNorm1D, Tensor>] {
-    [\BatchNorm1D.weight, \BatchNorm1D.bias]
-  }
-  /// Tangent representation for `BatchNorm1D` containing gradients for each parameter.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Tangent for the scaling factor.
-    public var weight: Tensor
-    /// Tangent for the bias parameter.
-    public var bias: Tensor
-    /// Writable key paths for the tangent vector's components.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [\.weight, \.bias] }
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init(weight: .zero, bias: .zero) }
-    /// Adds two tangents element-wise.
-    public static func + (l: Self, r: Self) -> Self { .init(weight: l.weight + r.weight, bias: l.bias + r.bias) }
-    /// Subtracts two tangents element-wise.
-    public static func - (l: Self, r: Self) -> Self { .init(weight: l.weight - r.weight, bias: l.bias - r.bias) }
-  }
-}
-
-extension BatchNorm1D {
-  /// Provides a custom VJP implementation that respects the training/eval switch.
-  /// - Parameters:
-  ///   - x: Input activations.
-  ///   - context: Forward-context gate controlling training behavior.
-  /// - Returns: The layer output and a pullback for the inputs and parameters.
-  @usableFromInline
-  @derivative(of: call(_:context:))
-  func vjpCall(_ x: Tensor, context: @noDerivative ForwardContext)
-    -> (value: Tensor, pullback: (Tensor) -> (TangentVector, Tensor))
-  {
-    if !context.training {
-      let mean = runningMean.value
-      let variance = runningVar.value
-      let value = _batchNorm1D(
-        x,
-        mean: mean,
-        variance: variance,
-        weight: weight,
-        bias: bias,
-        eps: epsilon)
-
-      let featureCount = withoutDerivative(at: weight.shape[0])
-      let reshape = withoutDerivative(at: [1, featureCount])
-      let epsTensor = Tensor(epsilon, dtype: variance.dtype ?? x.dtype!, device: variance.device)
-      let denomVec = variance.adding(epsTensor).sqrt()
-      let denom = denomVec.reshaped(reshape)
-      let centered = x.subtracting(mean.reshaped(reshape))
-      let normalized = centered.dividing(denom)
-      let weightB = weight.reshaped(reshape)
-
-      return (value, { upstream in
-        let dBeta = upstream.sum(dim: 0)
-        let dGamma = upstream.multiplying(normalized).sum(dim: 0)
-        let dx = upstream.multiplying(weightB).dividing(denom)
-        var tangent = TangentVector.zero
-        tangent.weight = dGamma
-        tangent.bias = dBeta
-        return (tangent, dx)
-      })
-    }
-
-    let batchMean = x.mean(dim: 0)
-    let featureCount1D = withoutDerivative(at: batchMean.shape[0])
-    let broadcastShape = withoutDerivative(at: [1, featureCount1D])
-    let centered = x.subtracting(batchMean.reshaped(broadcastShape))
-    let batchVar = centered.multiplying(centered).mean(dim: 0)
-    let value = _batchNorm1D(
-      x,
-      mean: batchMean,
-      variance: batchVar,
-      weight: weight,
-      bias: bias,
-      eps: epsilon)
-
-    let epsTensor = Tensor(epsilon, dtype: batchVar.dtype ?? x.dtype!, device: batchVar.device)
-    let varPlusEps = batchVar.adding(epsTensor)
-    let denomVec = varPlusEps.sqrt()
-    let invStdVec = varPlusEps.pow(-0.5)
-    let invStdCubeVec = varPlusEps.pow(-1.5)
-    let denom = denomVec.reshaped(broadcastShape)
-    let invStd = invStdVec.reshaped(broadcastShape)
-    let normalized = centered.dividing(denom)
-    let weightB = weight.reshaped(broadcastShape)
-    let n = Double(x.shape[0])
-
-    return (value, { upstream in
-      let dBeta = upstream.sum(dim: 0)
-      let dGamma = upstream.multiplying(normalized).sum(dim: 0)
-      let dxHat = upstream.multiplying(weightB)
-      let dVar = dxHat.multiplying(centered).sum(dim: 0)
-        .multiplying(-0.5)
-        .multiplying(invStdCubeVec)
-      let dMean = dxHat.multiplying(invStd).negated().sum(dim: 0)
-        .adding(dVar.multiplying(centered.sum(dim: 0)).multiplying(-2.0 / n))
-      let dx = dxHat.multiplying(invStd)
-        .adding(centered.multiplying(dVar.reshaped(broadcastShape)).multiplying(2.0 / n))
-        .adding(dMean.reshaped(broadcastShape).dividing(n))
-
-      var tangent = TangentVector.zero
-      tangent.weight = dGamma
-      tangent.bias = dBeta
-      return (tangent, dx)
-    })
-  }
-}
-
-// MARK: - BatchNorm2D  (supports NCHW/NHWC)
-
-public struct BatchNorm2D: Layer {
-  public var weight: Tensor   // gamma [C]
-  public var bias: Tensor     // beta  [C]
-
-  @noDerivative public var runningMean: _TensorBox // [C]
-  @noDerivative public var runningVar: _TensorBox  // [C]
-
-  @noDerivative public var momentum: Double
-  @noDerivative public var epsilon: Double
-  @noDerivative public var dataFormat: DataFormat  // NCHW or NHWC
-
+  /// Backward-compat alias (drop-in).
   public init(
-    numFeatures: Int,
-    momentum: Double = 0.1,
-    epsilon: Double = 1e-5,
-    dataFormat: DataFormat = .nchw,
+    featureCount: Int,
+    momentum: Float = 0.1,
+    epsilon: Float = 1e-5,
+    affine: Bool = true,
     dtype: DType = .float32,
     device: Device = .cpu
   ) {
-    self.weight = Tensor.ones(shape: [numFeatures], dtype: dtype, device: device)
-    self.bias   = Tensor.zeros(shape: [numFeatures], dtype: dtype, device: device)
-    self.runningMean = _TensorBox(Tensor.zeros(shape: [numFeatures], dtype: dtype, device: device))
-    self.runningVar  = _TensorBox(Tensor.ones(shape: [numFeatures], dtype: dtype, device: device))
-    self.momentum = momentum
-    self.epsilon = epsilon
-    self.dataFormat = dataFormat
+    self.init(
+      channels: featureCount, momentum: momentum, epsilon: epsilon,
+      affine: affine, dtype: dtype, device: device)
   }
 
-  // Inference: running stats
+  // MARK: - Helpers (shapes & reductions)
+
+  @inlinable
+  @inline(__always)
+  internal func paramExpandShape(for x: Tensor) -> [Int] {
+    // [1, C, 1, 1, ...] to match NCHW...
+    let c = x._dimSize(1)  // internal helper, end-exclusive semantics. :contentReference[oaicite:8]{index=8}
+    precondition(
+      c == gamma.shape[0],
+      "BatchNorm: channel mismatch: x has C=\(c), gamma has \(gamma.shape[0])")
+    var shape = [Int](repeating: 1, count: x.rank)
+    shape[1] = c
+    return shape
+  }
+
+  @inlinable
+  @inline(__always)
+  internal func reduceAxes(for x: Tensor) -> [Int] {
+    // All dims except channel (1)
+    precondition(x.rank >= 2, "BatchNorm requires rank >= 2 (got \(x.rank)).")
+    var axes = [Int]()
+    axes.reserveCapacity(x.rank - 1)
+    for d in 0..<x.rank where d != 1 { axes.append(d) }
+    return axes
+  }
+
+  @inlinable
+  internal func expandedParams(for x: Tensor) -> (Tensor, Tensor) {
+    let gView = broadcastParam(gamma, for: x)
+    let bView = broadcastParam(beta, for: x)
+    return (gView, bView)
+  }
+
+  @inlinable
+  internal func expandedRunning(for x: Tensor) -> (Tensor, Tensor) {
+    let meanValue = withoutDerivative(at: runningMean.value)
+    let varValue = withoutDerivative(at: runningVariance.value)
+    return (broadcastParam(meanValue, for: x), broadcastParam(varValue, for: x))
+  }
+
+  @inlinable
+  internal func computeBatchStats(_ x: Tensor) -> (meanKeep: Tensor, varKeep: Tensor) {
+    // Reduce with keepdim to keep broadcasting simple; sequential reductions are safe. :contentReference[oaicite:10]{index=10}
+    var mean = x
+    var var_ = x
+    let axes = withoutDerivative(at: reduceAxes(for: x))
+    for ax in axes {
+      mean = mean.mean(dim: ax, keepdim: true)
+    }
+    let centered = x - mean
+    var_ = centered.multiplying(centered)
+    for ax in axes {
+      var_ = var_.mean(dim: ax, keepdim: true)
+    }
+    return (meanKeep: mean, varKeep: var_)
+  }
+
+  @inlinable
+  internal func normalize(_ x: Tensor, meanKeep: Tensor, varKeep: Tensor) -> Tensor {
+    // 1 / sqrt(var + eps)
+    let dtype = withoutDerivative(at: x.dtype ?? .float32)
+    let device = withoutDerivative(at: x.device)
+    let eps = Tensor(self.epsilon, dtype: dtype, device: device)
+    let invStd =
+      (Tensor.ones(shape: [], dtype: dtype, device: device)
+        .dividing((varKeep + eps).sqrt()))
+    // (x - mean) * invStd
+    return (x - meanKeep).multiplying(invStd)  // shapes are aligned due to keepdim
+  }
+
+  @inlinable
+  @inline(__always)
+  internal func broadcastParam(_ param: Tensor, for x: Tensor) -> Tensor {
+    let inputRank = withoutDerivative(at: x.rank)
+    precondition(inputRank >= 2, "BatchNorm requires rank >= 2 input (got \(inputRank)).")
+    let paramRank = withoutDerivative(at: param.rank)
+    precondition(paramRank == 1, "BatchNorm parameters must be rank-1 (got rank \(paramRank)).")
+    var view = param
+    // Insert batch axis at the front.
+    view = view.unsqueezed(dim: 0)
+    // Append singleton axes for spatial dimensions beyond channel.
+    if inputRank > 2 {
+      for axis in 2..<inputRank {
+        view = view.unsqueezed(dim: axis)
+      }
+    }
+    return view
+  }
+
+  // MARK: - Forward
+
+  @inlinable
+  @inline(__always)
+  internal func forwardTraining(_ x: Tensor) -> (output: Tensor, meanVec: Tensor, varVec: Tensor) {
+    let (meanKeep, varKeep) = computeBatchStats(x)
+    var y = normalize(x, meanKeep: meanKeep, varKeep: varKeep)
+    if affine {
+      let (g, b) = expandedParams(for: x)
+      y = y.multiplying(g).adding(b)
+    }
+    return (y, meanKeep.squeezed(), varKeep.squeezed())
+  }
+
+  @inlinable
+  @inline(__always)
+  internal func forwardInference(_ x: Tensor) -> Tensor {
+    let (rm, rv) = expandedRunning(for: x)
+    var y = normalize(x, meanKeep: rm, varKeep: rv)
+    if affine {
+      let (g, b) = expandedParams(for: x)
+      y = y.multiplying(g).adding(b)
+    }
+    return y
+  }
+
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
-    let m = runningMean.value
-    let v = runningVar.value
-    return _batchNorm2D(
-      x, mean: m, variance: v, weight: weight, bias: bias, eps: epsilon, format: dataFormat)
-  }
+    // Decide phase based on thread-local context. :contentReference[oaicite:11]{index=11}
+    switch Context.local.learningPhase {
+    case .training:
+      let (y, meanVec, varVec) = forwardTraining(x)
 
-  // Training: batch stats + running updates
-  @differentiable(reverse, wrt: (self, x))
-  public func call(_ x: Tensor, context: @noDerivative ForwardContext) -> Tensor {
-    guard context.training else { return self(x) }
+      let m = Tensor(self.momentum, dtype: meanVec.dtype ?? .float32, device: meanVec.device)
+      let oneMinusM = Tensor(
+        1 - self.momentum, dtype: meanVec.dtype ?? .float32, device: meanVec.device)
 
-    let shape = withoutDerivative(at: x.shape)
-    let (reduceDims, broadcastShape) = withoutDerivative(at: _layoutInfo(shape: shape, format: dataFormat))
-    // mean over N,H,W (reduceDims)
-    var mean = x
-    for d in reduceDims.sorted(by: >) { mean = mean.mean(dim: d) }  // [C]
-    // var = E[(x - mean)^2]
-    let centered = x.subtracting(mean.reshaped(broadcastShape))
-    var varT = centered.multiplying(centered)
-    for d in reduceDims.sorted(by: >) { varT = varT.mean(dim: d) }  // [C]
+      // running := (1 - m) * running + m * batch
+      runningMean.value = runningMean.value.multiplying(oneMinusM).adding(meanVec.multiplying(m))
+      runningVariance.value = runningVariance.value.multiplying(oneMinusM).adding(
+        varVec.multiplying(m))
 
-    let (meanND, varND) = withoutDerivative(at: (mean, varT))
-    let mom = Tensor(momentum).to(dtype: meanND.dtype!).to(device: meanND.device)
-    let oneMinus = Tensor(1.0, dtype: mom.dtype!, device: mom.device).subtracting(mom)
-    runningMean.value = runningMean.value.multiplying(oneMinus).adding(meanND.multiplying(mom))
-    runningVar.value = runningVar.value.multiplying(oneMinus).adding(varND.multiplying(mom))
+      return y
 
-    return _batchNorm2D(
-      x, mean: mean, variance: varT, weight: weight, bias: bias, eps: epsilon, format: dataFormat)
-  }
-
-  // Shared compute
-  @differentiable(reverse)
-  private func _batchNorm2D(
-    _ x: Tensor, mean: Tensor, variance: Tensor,
-    weight: Tensor, bias: Tensor, eps: Double, format: DataFormat
-  ) -> Tensor {
-    let shape = withoutDerivative(at: x.shape)
-    let (_, broadcastShape) = withoutDerivative(at: _layoutInfo(shape: shape, format: format))
-    let epsTensor = withoutDerivative(at: Tensor(
-      eps,
-      dtype: variance.dtype ?? x.dtype!,
-      device: variance.device
-    ))
-    let denom = variance.adding(epsTensor).sqrt().reshaped(broadcastShape)
-    let meanB = mean.reshaped(broadcastShape)
-    let weightB = weight.reshaped(broadcastShape)
-    let biasB = bias.reshaped(broadcastShape)
-    let norm = x.subtracting(meanB).dividing(denom)
-    return norm.multiplying(weightB).adding(biasB)
-  }
-
-  // Layout helpers
-  private func _layoutInfo(shape: [Int], format: DataFormat)
-    -> (reduceDims: [Int], broadcastShape: [Int])
-  {
-    switch format {
-    case .nchw:
-      // x: [N, C, H, W]; reduce over N,H,W => dims [0,2,3]; broadcast [1,C,1,1]
-      return (
-        [0, 2, 3],
-        [1, shape[1], 1, 1]
-      )
-    case .nhwc:
-      // x: [N, H, W, C]; reduce over N,H,W => dims [0,1,2]; broadcast [1,1,1,C]
-      return (
-        [0, 1, 2],
-        [1, 1, 1, shape[3]]
-      )
+    case .inference:
+      return forwardInference(x)
     }
-  }
-
-  // --- Layer plumbing ---
-  public mutating func move(by offset: TangentVector) {
-    weight.move(by: offset.weight)
-    bias.move(by: offset.bias)
-  }
-  public static var parameterKeyPaths: [WritableKeyPath<BatchNorm2D, Tensor>] {
-    [\BatchNorm2D.weight, \BatchNorm2D.bias]
-  }
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    public var weight: Tensor
-    public var bias: Tensor
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [\.weight, \.bias] }
-    public static var zero: TangentVector { .init(weight: .zero, bias: .zero) }
-    public static func + (l: Self, r: Self) -> Self { .init(weight: l.weight + r.weight, bias: l.bias + r.bias) }
-    public static func - (l: Self, r: Self) -> Self { .init(weight: l.weight - r.weight, bias: l.bias - r.bias) }
   }
 }
 
-
-extension BatchNorm2D {
-  @usableFromInline
-  @derivative(of: call(_:context:))
-  func vjpCall(_ x: Tensor, context: @noDerivative ForwardContext)
-    -> (value: Tensor, pullback: (Tensor) -> (TangentVector, Tensor))
+// MARK: - Derivatives (avoid curried-self solver path)
+extension BatchNorm {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector))
   {
-    let shape = withoutDerivative(at: x.shape)
-    let (reduceDims, broadcastShape) = withoutDerivative(at: _layoutInfo(shape: shape, format: dataFormat))
-    let reduceOrder = withoutDerivative(at: reduceDims.sorted(by: >))
-    let elementsPerChannel = withoutDerivative(at: reduceDims.reduce(1) { $0 * shape[$1] })
-    let count = Double(elementsPerChannel)
+    func primal(_ gamma: Tensor, _ beta: Tensor, _ input: Tensor) -> Tensor {
+      var layer = self
+      layer.gamma = gamma
+      layer.beta = beta
+      switch Context.local.learningPhase {
+      case .training:
+        return layer.forwardTraining(input).output
+      case .inference:
+        return layer.forwardInference(input)
+      }
+    }
+    let (y, pb) = valueWithPullback(at: self.gamma, self.beta, x, of: primal)
+    return (
+      y,
+      { v in
+        let (dGamma, dBeta, dInput) = pb(v)
+        let refGamma = withoutDerivative(at: self.gamma)
+        let refBeta = withoutDerivative(at: self.beta)
+        let g = BatchNorm.alignTangentComponent(dGamma, to: refGamma, label: "gamma")
+        let b = BatchNorm.alignTangentComponent(dBeta, to: refBeta, label: "beta")
+        return (TangentVector(gamma: g, beta: b), dInput)
+      }
+    )
+  }
 
-    func reducedSum(_ tensor: Tensor) -> Tensor {
-      var result = tensor
-      for dim in reduceOrder { result = result.sum(dim: dim) }
-      return result
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor.TangentVector) -> TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
+
+extension BatchNorm {
+  @inline(__always)
+  static func alignTangentComponent(
+    _ delta: Tensor,
+    to parameter: Tensor,
+    label: StaticString
+  ) -> Tensor {
+    var adjusted = delta
+    let targetParam = withoutDerivative(at: parameter)
+    let targetShape = targetParam.shape
+    let targetRank = targetParam.rank
+    let targetCount = targetParam.count
+    let targetDevice = targetParam.device
+    let targetDType = targetParam.dtype
+
+    if let dtype = targetDType, adjusted.dtype != dtype {
+      adjusted = adjusted.to(dtype: dtype)
+    }
+    if adjusted.device != targetDevice {
+      adjusted = adjusted.to(device: targetDevice)
     }
 
-    if !context.training {
-      let mean = runningMean.value
-      let variance = runningVar.value
-      let value = _batchNorm2D(
-        x,
-        mean: mean,
-        variance: variance,
-        weight: weight,
-        bias: bias,
-        eps: epsilon,
-        format: dataFormat)
+    if adjusted.shape != targetShape {
+      if targetRank == 1, adjusted.rank > 1, !targetShape.isEmpty {
+        let target = targetShape[0]
+        if var axisToKeep = adjusted.shape.firstIndex(of: target) {
+          var reduced = adjusted
+          for axis in stride(from: reduced.rank - 1, through: 0, by: -1) {
+            if axis == axisToKeep { continue }
+            reduced = reduced.sum(dim: axis)
+            if axis < axisToKeep { axisToKeep -= 1 }
+          }
+          adjusted = reduced
+        }
+      }
 
-      let epsTensor = Tensor(epsilon, dtype: variance.dtype ?? x.dtype!, device: variance.device)
-      let denomVec = variance.adding(epsTensor).sqrt()
-      let denom = denomVec.reshaped(broadcastShape)
-      let centered = x.subtracting(mean.reshaped(broadcastShape))
-      let normalized = centered.dividing(denom)
-      let weightB = weight.reshaped(broadcastShape)
-
-      return (value, { upstream in
-        let dBeta = reducedSum(upstream)
-        let dGamma = reducedSum(upstream.multiplying(normalized))
-        let dx = upstream.multiplying(weightB).dividing(denom)
-        var tangent = TangentVector.zero
-        tangent.weight = dGamma
-        tangent.bias = dBeta
-        return (tangent, dx)
-      })
+      let squeezed = adjusted.squeezed()
+      if squeezed.shape == targetShape {
+        adjusted = squeezed
+      } else if squeezed.count == targetCount {
+        adjusted = squeezed.reshaped(targetShape)
+      } else if adjusted.count == targetCount {
+        adjusted = adjusted.reshaped(targetShape)
+      } else {
+        preconditionFailure(
+          "BatchNorm parameter \(label) has shape \(targetShape) (count \(targetCount)) "
+            + "but tangent provides shape \(adjusted.shape) (count \(adjusted.count)).")
+      }
     }
 
-    var mean = x
-    for dim in reduceOrder { mean = mean.mean(dim: dim) }
-    let centered = x.subtracting(mean.reshaped(broadcastShape))
-    var variance = centered.multiplying(centered)
-    for dim in reduceOrder { variance = variance.mean(dim: dim) }
-
-    let value = _batchNorm2D(
-      x,
-      mean: mean,
-      variance: variance,
-      weight: weight,
-      bias: bias,
-      eps: epsilon,
-      format: dataFormat)
-
-    let epsTensor = Tensor(epsilon, dtype: variance.dtype ?? x.dtype!, device: variance.device)
-    let varPlusEps = variance.adding(epsTensor)
-    let denomVec = varPlusEps.sqrt()
-    let invStdVec = varPlusEps.pow(-0.5)
-    let invStdCubeVec = varPlusEps.pow(-1.5)
-    let denom = denomVec.reshaped(broadcastShape)
-    let invStd = invStdVec.reshaped(broadcastShape)
-    let normalized = centered.dividing(denom)
-    let weightB = weight.reshaped(broadcastShape)
-
-    return (value, { upstream in
-      let dBeta = reducedSum(upstream)
-      let dGamma = reducedSum(upstream.multiplying(normalized))
-      let dxHat = upstream.multiplying(weightB)
-      let dVar = reducedSum(dxHat.multiplying(centered)).multiplying(-0.5).multiplying(invStdCubeVec)
-      let dMean = reducedSum(dxHat.multiplying(invStd).negated())
-        .adding(dVar.multiplying(reducedSum(centered)).multiplying(-2.0 / count))
-      let dVarB = dVar.reshaped(broadcastShape)
-      let dMeanB = dMean.reshaped(broadcastShape)
-      let dx = dxHat.multiplying(invStd)
-        .adding(centered.multiplying(dVarB).multiplying(2.0 / count))
-        .adding(dMeanB.dividing(count))
-
-      var tangent = TangentVector.zero
-      tangent.weight = dGamma
-      tangent.bias = dBeta
-      return (tangent, dx)
-    })
+    return adjusted
   }
 }

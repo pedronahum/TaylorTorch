@@ -1,5 +1,7 @@
 #pragma once
+#include "ATen/ops/gru_cell.h"
 #include <ATen/ATen.h>
+#include <array>
 #include <vector>
 #include <utility>
 #include <ATen/ops/where.h>
@@ -27,6 +29,23 @@ static inline at::IntArrayRef mk(const int64_t* p, intptr_t n) {
 }
 
 // ---- Neural Network Ops
+
+static inline TTSTensor _gru_cell(const TTSTensor &input, const TTSTensor &hx, const TTSTensor &w_ih, const TTSTensor &w_hh)
+{
+  auto y = at::gru_cell(input._t(), hx._t(), w_ih._t(), w_hh._t());
+  return TTSTensor(y);
+}
+
+static inline std::tuple<TTSTensor, TTSTensor> _lstm_cell(const TTSTensor &input, const TTSTensor &hx, const TTSTensor &cx, const TTSTensor &w_ih, const TTSTensor &w_hh)
+{
+  std::array<at::Tensor, 2> hx_list{hx._t(), cx._t()};
+  auto result = at::lstm_cell(input._t(), hx_list, w_ih._t(), w_hh._t());
+  return {
+      TTSTensor(std::get<0>(result)),
+      TTSTensor(std::get<1>(result))
+  };
+}
+
 
 // Forward conv2d. Canonical order: (input, weight, bias*, stride*, len, padding*, len, dilation*, len, groups)
 static inline TTSTensor _conv2d(

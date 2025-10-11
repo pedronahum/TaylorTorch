@@ -1,76 +1,100 @@
-// Sources/Torch/Modules/Layers/Linear.swift
+// Sources/Torch/Modules/Linear.swift
+import Foundation
 import _Differentiation
 
-/// Fully connected affine transform `y = x Wᵀ + b`.
+/// Dense affine transformation: y = x.matmul(weight) + bias
+/// - Shapes:
+///   - input  x: [batch, in]
+///   - weight : [in, out]
+///   - bias   : [out]
 public struct Linear: Layer {
-  /// Learnable weight matrix with shape `[outFeatures, inFeatures]`.
-  public var weight: Tensor  // [out, in]
-  /// Learnable bias vector with shape `[outFeatures]`.
+  // Parameters
+  public var weight: Tensor  // [in, out]
   public var bias: Tensor  // [out]
 
-  /// Creates a linear layer with explicit parameters.
-  /// - Parameters:
-  ///   - weight: Weight matrix shaped `[outFeatures, inFeatures]`.
-  ///   - bias: Bias vector shaped `[outFeatures]`.
-  public init(weight: Tensor, bias: Tensor) {
-    self.weight = weight
-    self.bias = bias
-  }
+  // Layer signatures
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  /// y = x W^T + b
-  /// - Parameter x: Input activations.
-  /// - Returns: Affine transformation applied to `x`.
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor {
-    x.matmul(weight.transposed(-1, -2)).adding(bias)
-  }
-
-  /// Applies the tangent `offset` to the layer's parameters.
-  /// - Parameter offset: Tangent vector from differentiation.
-  public mutating func move(by offset: TangentVector) {
-    self.weight.move(by: offset.weight)
-    self.bias.move(by: offset.bias)
-  }
-
-  // Parameter traversal
-  /// Writable key paths for trainable parameters.
-  public static var parameterKeyPaths: [WritableKeyPath<Linear, Tensor>] {
-    [\Linear.weight, \Linear.bias]
-  }
-
-  // Manually implement AdditiveArithmetic to work around a compiler bug
-  /// Tangent representation for `Linear`.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Tangent for the weight matrix.
+  // MARK: - Manual TangentVector (avoid synthesis pitfalls)
+  public struct TangentVector:
+    Differentiable,
+    AdditiveArithmetic,  // explicit zero/+/-
+    KeyPathIterable,  // required by Module
+    VectorProtocol,  // required by Module
+    PointwiseMultiplicative  // required by Module
+  {
+    public typealias VectorSpaceScalar = Float
     public var weight: Tensor
-    /// Tangent for the bias vector.
     public var bias: Tensor
 
-    /// Additive identity for the tangent vector.
-    public static var zero: TangentVector {
-      // Assuming Tensor conforms to AdditiveArithmetic and has a .zero
-      TangentVector(weight: .zero, bias: .zero)
+    public init(weight: Tensor = Tensor(0), bias: Tensor = Tensor(0)) {
+      self.weight = weight
+      self.bias = bias
     }
+    public static var zero: Self { .init() }
+    public static func + (lhs: Self, rhs: Self) -> Self {
+      .init(weight: lhs.weight + rhs.weight, bias: lhs.bias + rhs.bias)
+    }
+    public static func - (lhs: Self, rhs: Self) -> Self {
+      .init(weight: lhs.weight - rhs.weight, bias: lhs.bias - rhs.bias)
+    }
+  }
 
-    /// Adds two tangent vectors element-wise.
-    public static func + (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
-      TangentVector(
-        weight: lhs.weight.adding(rhs.weight),
-        bias: lhs.bias.adding(rhs.bias)
-      )
-    }
+  // Required when manually defining TangentVector
+  public mutating func move(by d: TangentVector) {
+    weight += d.weight
+    bias += d.bias
+  }
 
-    /// Subtracts two tangent vectors element-wise.
-    public static func - (lhs: TangentVector, rhs: TangentVector) -> TangentVector {
-      TangentVector(
-        weight: lhs.weight.adding(rhs.weight.multiplying(-1)),
-        bias: lhs.bias.adding(rhs.bias.multiplying(-1))
-      )
-    }
+  // MARK: - Initializers
+  /// Glorot/Xavier uniform init (no transpose needed; weight is [in, out]).
+  public init(
+    inputSize inFeatures: Int,
+    outputSize outFeatures: Int,
+    dtype: DType = .float32,
+    device: Device = .cpu
+  ) {
+    let a = Foundation.sqrt(6.0 / Double(inFeatures + outFeatures))  // Glorot
+    self.weight = Tensor.uniform(
+      low: -a, high: a, shape: [inFeatures, outFeatures], dtype: dtype, device: device)
+    self.bias = Tensor.zeros(shape: [outFeatures], dtype: dtype, device: device)
+  }
 
-    /// Writable key paths for the tangent components.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] {
-      [\.weight, \.bias]
+  // MARK: - Forward
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    x.matmul(weight).adding(bias)
+  }
+}
+
+// MARK: - Manual derivatives (avoid curried-self path)
+extension Linear {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (
+      value: Tensor,
+      pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector)
+    )
+  {
+    func primal(_ s: Linear, _ i: Tensor) -> Tensor {
+      i.matmul(s.weight).adding(s.bias)
     }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (y, pb)
+  }
+
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor.TangentVector) -> TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }

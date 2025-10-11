@@ -41,6 +41,13 @@ internal func _reduceLike(_ gradient: Tensor, targetShape: [Int]) -> Tensor {
   }
 
   var shape = result.shape
+  if shape.count < targetShape.count {
+    let missing = targetShape.count - shape.count
+    for _ in 0..<missing {
+      result = result.unsqueezed(dim: 0)
+    }
+    shape = result.shape
+  }
   let extraDims = max(0, shape.count - targetShape.count)
   if extraDims > 0 {
     for dim in 0..<extraDims {
@@ -370,22 +377,24 @@ extension Tensor {
 
   /// Reverse-mode derivative for tensor–tensor `subtracting`, passing the
   /// upstream gradient to the minuend and its negation to the subtrahend.
+  // subtracting (tensor ⊗ tensor)
   @derivative(of: subtracting)
   @inlinable
   internal func _vjpSubtracting(_ other: Tensor, alpha: Scalar = .int64(1)) -> (
     value: Tensor, pullback: (Tensor) -> (Tensor, Tensor)
   ) {
-    let result = self.subtracting(other)
+    let result = self.subtracting(other, alpha: alpha)
     return (
       result,
       { v in
-        return (v, v.negated())
+        let dSelf = _reduceLike(v, targetShape: self.shape)
+        let dOther = _reduceLike(v.negated(), targetShape: other.shape)
+        return (dSelf, dOther)
       }
     )
   }
 
-  /// Reverse-mode derivative for tensor–tensor `multiplying`, weighting each
-  /// gradient by the opposite operand per the product rule.
+  // multiplying (tensor ⊗ tensor)
   @derivative(of: multiplying)
   @inlinable
   internal func _vjpMultiplying(_ other: Tensor) -> (
@@ -395,12 +404,14 @@ extension Tensor {
     return (
       result,
       { v in
-        return (v.multiplying(other), v.multiplying(self))
+        let dSelf = _reduceLike(v.multiplying(other), targetShape: self.shape)
+        let dOther = _reduceLike(v.multiplying(self), targetShape: other.shape)
+        return (dSelf, dOther)
       }
     )
   }
-  /// Reverse-mode derivative for tensor–tensor `dividing`, applying quotient
-  /// rule semantics while broadcasting to the shape of each operand.
+
+  // dividing (tensor ⊗ tensor)
   @derivative(of: dividing)
   @inlinable
   internal func _vjpDividing(_ other: Tensor) -> (
@@ -410,7 +421,11 @@ extension Tensor {
     return (
       result,
       { v in
-        return (v.dividing(other), v.multiplying(self).dividing(other.multiplying(other)).negated())
+        let dSelf = _reduceLike(v.dividing(other), targetShape: self.shape)
+        let rhsSq = other.multiplying(other)
+        let num = v.multiplying(self)
+        let dOther = _reduceLike(num.dividing(rhsSq).negated(), targetShape: other.shape)
+        return (dSelf, dOther)
       }
     )
   }

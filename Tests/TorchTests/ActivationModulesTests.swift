@@ -56,14 +56,16 @@ func gelu_exact_parity() throws {
   let (_, pbLayer) = valueWithPullback(at: x) { layer($0).sum() }
   let gLayer = pbLayer(Tensor(1.0, dtype: .float64))
 
-  // Manual reference (independent expression)
-  let invSqrt2 = 1.0 / Foundation.sqrt(2.0)
-  let (_, pbRef) = valueWithPullback(at: x) { x in
-    (0.5 * x).multiplying(1.0 + (x.multiplying(invSqrt2)).erf()).sum()
-  }
-  let gRef = pbRef(Tensor(1.0, dtype: .float64))
+  let dtype = withoutDerivative(at: x.dtype ?? .float32)
+  let device = withoutDerivative(at: x.device)
+  let half = Tensor(0.5, dtype: dtype, device: device)
+  let invSqrt2 = Tensor(0.7071067811865476, dtype: dtype, device: device)
+  let sqrtTwoPiInv = Tensor(0.7978845608028654, dtype: dtype, device: device)  // √(2/π)
+  let base = x.multiplying(invSqrt2).erf().adding(1)
+  let expTerm = x.multiplying(x).dividing(-2).exp()
+  let expected = half.multiplying(base).adding(x.multiplying(expTerm).multiplying(sqrtTwoPiInv))
 
-  #expect(gLayer.isClose(to: gRef, rtol: 1e-12, atol: 1e-12, equalNan: false))
+  #expect(gLayer.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
 @Test("GELU approximate matches tanh-based formula (forward + grads)")
@@ -113,14 +115,34 @@ func softplus_layer_parity() throws {
   #expect(gLayer.isClose(to: gRef, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
+@Test("ELU layer matches functional helper (forward + grads)")
+func elu_layer_parity() throws {
+  let x = Tensor(array: [-2.0, -0.1, 0.0, 0.1, 2.0], shape: [5], dtype: .float64)
+  let alpha: Float = 1.1
+
+  let layer = ELU(alpha: alpha)
+  let (_, pbLayer) = valueWithPullback(at: x) { layer($0).sum() }
+  let gLayer = pbLayer(Tensor(1.0, dtype: .float64))
+
+  let dtype = withoutDerivative(at: x.dtype ?? .float32)
+  let device = withoutDerivative(at: x.device)
+  let alphaT = Tensor(alpha, dtype: dtype, device: device)
+  let zero = Tensor(0, dtype: dtype, device: device)
+  let posGrad = Tensor.ones(shape: x.shape, dtype: dtype, device: device)
+  let negGrad = alphaT.multiplying(x.minimum(zero).exp())
+  let expected = TorchWhere.select(condition: x.gt(0), posGrad, negGrad)
+
+  #expect(gLayer.isClose(to: expected, rtol: 1e-12, atol: 1e-12, equalNan: false))
+}
+
 // MARK: - 6) LeakyReLU
 
 @Test("LeakyReLU(alpha) matches relu(x) - alpha * relu(-x) (forward + grads)")
 func leakyrelu_parity() throws {
   let x = Tensor(array: [-2.0, -0.1, 0.5], shape: [3], dtype: .float64)
-  let alpha = 0.2
+  let alpha: Float = 0.2
 
-  let (_, pbLayer) = valueWithPullback(at: x) { LeakyReLU(alpha: alpha)($0).sum() }
+  let (_, pbLayer) = valueWithPullback(at: x) { LeakyReLU(negativeSlope: alpha)($0).sum() }
   let gLayer = pbLayer(Tensor(1.0, dtype: .float64))
 
   let (_, pbRef) = valueWithPullback(at: x) { t in
@@ -130,9 +152,9 @@ func leakyrelu_parity() throws {
   #expect(gLayer.isClose(to: gRef, rtol: 1e-12, atol: 1e-12, equalNan: false))
 }
 
-// MARK: - 7) Integration with builder & Sequential
+// MARK: - 7) Integration with Sequential builder
 
-@Test("Builder: SequentialBlock { Linear; ReLU; Linear } equals manual composition (fwd + grads)")
+@Test("Sequential { Linear; ReLU; Linear } equals manual composition (fwd + grads)")
 func builder_sequential_with_activation() throws {
   let x = Tensor(
     array: [
@@ -140,48 +162,55 @@ func builder_sequential_with_activation() throws {
       1.5, 0.0, -0.5,
     ], shape: [2, 3], dtype: .float64)
 
-  // Use your Linear.glorot convenience for realistic params.
-  let l1 = Linear.glorot(inFeatures: 3, outFeatures: 2, dtype: .float64)
-  let l2 = Linear.glorot(inFeatures: 2, outFeatures: 2, dtype: .float64)
+  var l1 = Linear(inputSize: 3, outputSize: 2, dtype: .float64)
+  var l2 = Linear(inputSize: 2, outputSize: 2, dtype: .float64)
+  l1.weight = Tensor.arange(Double(0), to: Double(3 * 2), step: 1, dtype: .float64)
+    .reshaped([3, 2])
+  l1.bias = Tensor(array: [0.1, -0.2], shape: [2], dtype: .float64)
+  l2.weight = Tensor.arange(Double(0), to: Double(2 * 2), step: 1, dtype: .float64)
+    .reshaped([2, 2])
+  l2.bias = Tensor(array: [0.0, 0.3], shape: [2], dtype: .float64)
 
-  let typed = Sequential(l1, l2)
-  let block = SequentialBlock {
+  let model = Sequential {
     l1
     ReLU()
     l2
   }
 
-  // Forward equality
-  let yTyped = l2(l1(x).relu())
-  let yBlock = block(x)
-  #expect(yBlock.isClose(to: yTyped, rtol: 1e-9, atol: 1e-9, equalNan: false))
+  // Manual baseline using the same parameters.
+  let yManual = l2(l1(x).relu())
+  let yModel = model(x)
+  #expect(yModel.isClose(to: yManual, rtol: 1e-9, atol: 1e-9, equalNan: false))
 
   // Gradient equality for L = sum(y)
-  let (_, pbBlock) = valueWithPullback(at: block) { $0(x).sum() }
-  let gBlock = pbBlock(Tensor(1.0, dtype: .float64))
+  let (_, pbModel) = valueWithPullback(at: model) { $0(x).sum() }
+  let gModel = pbModel(Tensor(1.0, dtype: .float64))
 
-  // Compare to manual chain via the same params (no extra activation params present).
-  let (_, pbManual) = valueWithPullback(at: typed) { m in m.l2(m.l1(x).relu()).sum() }
-  let gManual = pbManual(Tensor(1.0, dtype: .float64))
+  let (_, pbManual) = valueWithPullback(at: l1, l2) { first, second in
+    second(first(x).relu()).sum()
+  }
+  let (gL1Manual, gL2Manual) = pbManual(Tensor(1.0, dtype: .float64))
 
-  // Structure: block.body.(l1, ReLU, l2). Only l1/l2 have parameters.
-  #expect(
-    gBlock.body.l1.l1.weight.isClose(to: gManual.l1.weight, rtol: 1e-9, atol: 1e-9, equalNan: false))
-  #expect(gBlock.body.l1.l1.bias.isClose(to: gManual.l1.bias, rtol: 1e-9, atol: 1e-9, equalNan: false))
-  #expect(
-    gBlock.body.l2.weight.isClose(to: gManual.l2.weight, rtol: 1e-9, atol: 1e-9, equalNan: false))
-  #expect(gBlock.body.l2.bias.isClose(to: gManual.l2.bias, rtol: 1e-9, atol: 1e-9, equalNan: false))
+  // Align gradients (builder nests layers as Chain<Chain<Linear, ReLU>, Linear>)
+  let chainGrad = gModel.body
+  let gL1Model = chainGrad.first.first
+  let gL2Model = chainGrad.second
+
+  #expect(gL1Model.weight.isClose(to: gL1Manual.weight, rtol: 1e-9, atol: 1e-9, equalNan: false))
+  #expect(gL1Model.bias.isClose(to: gL1Manual.bias, rtol: 1e-9, atol: 1e-9, equalNan: false))
+  #expect(gL2Model.weight.isClose(to: gL2Manual.weight, rtol: 1e-9, atol: 1e-9, equalNan: false))
+  #expect(gL2Model.bias.isClose(to: gL2Manual.bias, rtol: 1e-9, atol: 1e-9, equalNan: false))
 }
 
 // MARK: - 8) Parameter traversal (empty)
 
 @Test("Activation layers expose no trainable parameters")
 func activation_layers_have_empty_parameter_lists() throws {
-  #expect(ReLU.parameterKeyPaths.isEmpty)
-  #expect(Tanh.parameterKeyPaths.isEmpty)
-  #expect(Sigmoid.parameterKeyPaths.isEmpty)
-  #expect(GELU.parameterKeyPaths.isEmpty)
-  #expect(SiLU.parameterKeyPaths.isEmpty)
-  #expect(Softplus.parameterKeyPaths.isEmpty)
-  #expect(LeakyReLU.parameterKeyPaths.isEmpty)
+  #expect(ReLU().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(Tanh().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(Sigmoid().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(GELU().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(SiLU().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(Softplus().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
+  #expect(LeakyReLU().recursivelyAllWritableKeyPaths(to: Tensor.self).isEmpty)
 }

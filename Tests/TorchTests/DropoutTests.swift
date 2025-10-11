@@ -4,14 +4,10 @@ import _Differentiation
 
 @testable import Torch
 
-private func onesLike(_ t: Tensor) -> Tensor {
-  Tensor.ones(shape: t.shape, dtype: t.dtype!)
-}
-
 @Test("Dropout: inference path is identity (value & gradient)")
 func dropoutInferenceIsIdentity() throws {
   let x = Tensor(array: [0.5, -1.0, 2.0, -3.0], shape: [4])
-  var layer = Dropout(rate: 0.75)  // any rate; inference path is no-op
+  let layer = Dropout(probability: 0.75)  // any p; inference path is no-op
 
   // Forward
   let y = layer(x)
@@ -25,70 +21,54 @@ func dropoutInferenceIsIdentity() throws {
   #expect(grad.isClose(to: upstream, rtol: 0, atol: 0, equalNan: false))
 }
 
-@Test("Dropout: training applies mask & inverted scaling (deterministic mask)")
-func dropoutTrainingAppliesMaskAndScaling() throws {
-  // 2x4 tensor so we can see a pattern
-  let x = Tensor(
-    array: [
-      1.0, 2.0, 3.0, 4.0,
-      -1.0, -2.0, -3.0, -4.0,
-    ], shape: [2, 4]
-  )
-  let rate = 0.5
-  let keep = 1.0 - rate
+@Test("Dropout: training invariants (masking + inverted scaling) without test-only hooks")
+func dropoutTrainingInvariants() throws {
+  // Use many elements to make the kept-fraction concentration tight.
+  let n = 10_000
+  let x = Tensor.ones(shape: [n], dtype: .float64)
+  let p: Float = 0.2
+  let keep = 1.0 - p
+  let layer = Dropout(probability: p)
 
-  // Deterministic mask for testing: T F T F | F T T F
-  let maskBool = Tensor(
-    array: [
-      true, false, true, false,
-      false, true, true, false,
-    ],
-    shape: [2, 4]
-  )
+  let (_, pb) = withLearningPhase(.training) {
+    valueWithPullback(at: x) { input in layer(input).sum() }
+  }
+  //print("ok so far")
+  // Gradient of sum(layer(x)) is mask/keep. Use it to recover dropout statistics.
+  let grad = pb(Tensor(1.0, dtype: .float64))
+  let y = grad  // for x == 1, forward output equals grad (mask/keep)
 
-  let layer = Dropout(rate: rate, maskFactory: { _ in maskBool })
-  let ctx = ForwardContext(training: true)
+  let zero = Tensor(0.0, dtype: .float64)
+  let ratio = Tensor(Double(1.0 / keep), dtype: .float64)
 
-  // Forward
-  let y = layer.call(x, context: ctx)
-  let expected = x.multiplying(maskBool.to(dtype: x.dtype!)).dividing(keep)
-  #expect(y.isClose(to: expected, rtol: 0, atol: 0, equalNan: false))
+  let hasNegative = y.lt(zero).any().toArray(as: Bool.self)[0]
+  #expect(!hasNegative)
+  let exceedsRatio = y.gt(ratio).any().toArray(as: Bool.self)[0]
+  #expect(!exceedsRatio)
 
-  // Backward: dy/dx = mask / keep
-  let (value, pb) = valueWithPullback(at: x) { input in layer.call(input, context: ctx) }
-  #expect(value.isClose(to: expected, rtol: 0, atol: 0, equalNan: false))
+  let hasZero = y.eq(zero).any().toArray(as: Bool.self)[0]
+  #expect(hasZero)
+  let hasRatio = y.eq(ratio).any().toArray(as: Bool.self)[0]
+  #expect(hasRatio)
 
-  let upstream = Tensor(
-    array: [0.5, -1.0, 1.5, 0.0, -0.25, 2.0, -2.5, 1.0],
-    shape: [2, 4]
-  )
-  let grad = pb(upstream)
-  let expectedGrad = upstream.multiplying(maskBool.to(dtype: x.dtype!)).dividing(keep)
-  #expect(grad.isClose(to: expectedGrad, rtol: 1e-6, atol: 1e-6, equalNan: false))
+  let keptMask = y.gt(0.0).to(dtype: .float64)
+  let keptFraction = keptMask.mean()
+  #expect(keptFraction.isClose(to: Tensor(Double(keep), dtype: .float64), rtol: 0.0, atol: 0.02, equalNan: false))
+
 }
 
-@Test("Dropout: training edge cases (rate 0 and 1)")
-func dropoutTrainingEdgeCases() throws {
+@Test("Dropout: training edge case p=0 behaves like identity")
+func dropoutTraining_p0_isIdentity() throws {
   let x = Tensor(array: [1.0, -2.0, 3.0], shape: [3])
-  let ctx = ForwardContext(training: true)
+  let layer = Dropout(probability: 0.0)
 
-  // rate = 0 -> identity
-  do {
-    let layer = Dropout(rate: 0.0)
-    let (y, pb) = valueWithPullback(at: x) { input in layer.call(input, context: ctx) }
-    #expect(y.isClose(to: x, rtol: 0, atol: 0, equalNan: false))
-    let upstream = Tensor(array: [0.1, -0.2, 0.3], shape: [3])
-    let grad = pb(upstream)
-    #expect(grad.isClose(to: upstream, rtol: 0, atol: 0, equalNan: false))
+  // Forward + backward under training should still be identity when p == 0.
+  let (y, pb) = withLearningPhase(.training) {
+    valueWithPullback(at: x) { input in layer(input) }
   }
+  #expect(y.isClose(to: x, rtol: 0, atol: 0, equalNan: false))
 
-  // rate = 1 -> all zeros, zero gradient
-  do {
-    let layer = Dropout(rate: 1.0)
-    let (y, pb) = valueWithPullback(at: x) { input in layer.call(input, context: ctx) }
-    #expect(y.isClose(to: Tensor.zeros(shape: x.shape, dtype: x.dtype!, device: x.device)))
-    let upstream = Tensor(array: [0.5, 1.0, -2.0], shape: [3])
-    let grad = pb(upstream)
-    #expect(grad.isClose(to: Tensor.zeros(shape: x.shape, dtype: x.dtype!, device: x.device)))
-  }
+  let upstream = Tensor(array: [0.1, -0.2, 0.3], shape: [3])
+  let grad = pb(upstream)
+  #expect(grad.isClose(to: upstream, rtol: 0, atol: 0, equalNan: false))
 }

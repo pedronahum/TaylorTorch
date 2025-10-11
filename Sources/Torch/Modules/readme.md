@@ -1,13 +1,30 @@
-# Modules Overview
+# Modules overview
 
-The `Modules` subtree assembles everything above core tensor primitives into reusable differentiable components. Public entry points live here, while specialised folders keep related concerns grouped together:
+This subtree assembles everything above the tensor primitives into reusable,
+differentiable components. It also wires training/inference context through the
+layer stack so higher-level examples can stay in pure Swift.
 
-- **Layer.swift** – Declares the `Layer` protocol that every trainable component adopts. It extends `EuclideanModel`, exposes both pure and contextual calls, and ensures parameters are discoverable via key paths.
-- **Initializers.swift** – Shared tensor initialiser routines (e.g. Glorot) used by higher-level modules when constructing weights.
-- **Layers/** – Concrete trainable layers and shape utilities (linear blocks, convolutions, embeddings, activations, normalisation, flatten/reshape/permute, squeeze/unsqueeze, etc.). See its README for the full catalogue.
-- **Combinators/** – Higher-order wiring helpers (`Residual`, `ParallelAdd`, `Concat`, `Identity`) that operate on other layers while staying differentiable.
-- **Builders/** – The `LayerBuilder` DSL that turns declarative block syntax into nested `Sequential` pipelines.
-- **Context/** – Defines `ForwardContext`, the training/inference flag threaded through contextual layer calls.
-- **Shape/** – Reserved slot for non-layer shape helpers should they be needed in future.
+## Files and folders
 
-Most downstream code interacts with this directory: import `Torch`, pick the layers you need, and compose them using combinators or builder blocks. Optimisers and core algebra (found elsewhere) operate uniformly on any module defined here because every type conforms to the shared `Layer` contract.
+| Path | Highlights |
+| --- | --- |
+| `Layer.swift` | Declares the `Layer` protocol (alias of `Module`) that every trainable component adopts. Provides contextual calls, default `forward`, and ensures parameters are discoverable via key paths. |
+| `Initializers.swift` | Shared tensor initializer routines (e.g. Glorot/Xavier) used by layers when constructing weight tensors. |
+| `Layers/` | Concrete layers: dense blocks, convolutions/pooling, embeddings, normalisation, activations, dropout, attention, recurrent cells, and the `Sequential` builder. See `Layers/readme.md` for details. |
+| `Graph/` | Graph neural network primitives—`Graphs`, batching helpers, segment ops, and the message-passing `GraphNetwork`. Documented in `Graph/readme.md`. |
+| `Context/` | Houses the thread-local `ForwardContext` and helpers that toggle training vs inference. Several layers read `Context.local` to adjust behaviour. |
+
+## Why this structure matters
+
+- **Single contract** – Every module conforms to `Layer`, so optimisers, builders,
+  and compositional helpers can treat them uniformly.
+- **Separation of concerns** – Core algebra lives under `Torch/Core`, tensor
+  bindings under `Torch/ATen`; `Modules/` focuses solely on differentiable
+  building blocks.
+- **Composable design** – With `Sequential`, result builders, and the composable
+  graph layers, you can express complex architectures purely in Swift without
+  touching C++ interop.
+
+Most downstream code imports `Torch`, picks the modules needed, and plugs them
+into optimisers defined elsewhere in the project. The README files inside each
+subfolder provide deeper dives into the available components.

@@ -1,5 +1,34 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.1
 import PackageDescription
+
+// Define constants for paths to avoid repetition
+let swiftToolchainDir =
+    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr"
+let pytorchInstallDir = "/Users/pedro/programming/pytorch/install"
+
+// Derived paths
+let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
+let swiftIncludeDir = "\(swiftToolchainDir)/include"
+let pytorchIncludeDir = "\(pytorchInstallDir)/include"
+let pytorchApiIncludeDir = "\(pytorchInstallDir)/include/torch/csrc/api/include"
+let pytorchLibDir = "\(pytorchInstallDir)/lib"
+
+// Common compiler & linker settings
+let commonSwiftSettings: [SwiftSetting] = [
+    .interoperabilityMode(.Cxx),
+    .unsafeFlags(["-Xcc", "-I\(swiftIncludeDir)"]),
+    .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
+    .unsafeFlags(["-Xcc", "-I\(pytorchIncludeDir)"]),
+    .unsafeFlags(["-Xcc", "-I\(pytorchApiIncludeDir)"]),
+]
+
+let commonLinkerSettings: [LinkerSetting] = [
+    .unsafeFlags(["-L", pytorchLibDir]),
+    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
+    .linkedLibrary("c10"),
+    .linkedLibrary("torch"),
+    .linkedLibrary("torch_cpu"),
+]
 
 let package = Package(
     name: "TaylorTorch",
@@ -8,8 +37,9 @@ let package = Package(
     ],
     products: [
         .library(name: "Torch", targets: ["Torch"]),
-        .executable(name: "CatchExample", targets: ["CatchExample"]),
         .executable(name: "MNISTExample", targets: ["MNISTExample"]),
+        .executable(name: "ANKIExample", targets: ["ANKIExample"]),
+        .executable(name: "KARATEExample", targets: ["KARATEExample"]),
     ],
     targets: [
         // ----------------- C++ Targets -----------------
@@ -18,14 +48,9 @@ let package = Package(
             path: "Sources/ATenCXX",
             publicHeadersPath: "include",
             cxxSettings: [
-                .unsafeFlags([
-                    "-I",
-                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/lib/swift",
-                ]),
-                .unsafeFlags(["-I", "/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-I", "/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
+                .unsafeFlags(["-I", swiftLibDir]),
+                .unsafeFlags(["-I", pytorchIncludeDir]),
+                .unsafeFlags(["-I", pytorchApiIncludeDir]),
             ]
         ),
         .executableTarget(
@@ -33,160 +58,54 @@ let package = Package(
             dependencies: ["ATenCXX"],
             path: "Sources/ATenCXXDoctests",
             cxxSettings: [
-                .unsafeFlags([
-                    "-I",
-                    "/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                .unsafeFlags(["-I", "/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-I", "/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
+                .define("DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES"),
+                .unsafeFlags(["-I", swiftIncludeDir]),
+                .unsafeFlags(["-I", pytorchIncludeDir]),
+                .unsafeFlags(["-I", pytorchApiIncludeDir]),
                 .unsafeFlags(["-std=c++17"]),
             ],
             linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
+                .unsafeFlags(["-L", pytorchLibDir]),
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
                 .linkedLibrary("c10"),
                 .linkedLibrary("torch_cpu"),
             ]
         ),
 
         // ----------------- Swift Targets -----------------
-
         .target(
             name: "Torch",
             dependencies: ["ATenCXX"],
             exclude: [
-                "readme.md",
-                "ATen/readme.md",
-                "ATen/Core/Tensor/readme.md",
-                "Core/readme.md",
-                "Optimizers/readme.md",
-                "Modules/readme.md",
-                "Modules/Builders/readme.md",
-                "Modules/Combinators/readme.md",
-                "Modules/Context/readme.md",
-                "Modules/Layers/readme.md",
-                "Modules/Shape/readme.md",
+                "readme.md", "ATen/readme.md", "ATen/Core/Tensor/readme.md", "Core/readme.md",
+                "Optimizers/readme.md", "Modules/readme.md",
+                "Modules/Context/readme.md", "Modules/Layers/readme.md", "Modules/Graph/readme.md",
                 "Data/README.md",
-
             ],
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ]
+            swiftSettings: commonSwiftSettings
         ),
 
-        .executableTarget(
-            name: "CatchExample",
-            dependencies: ["Torch"],
-            path: "Examples/Catch",
-            exclude: [
-                "readme.md"
-            ],
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ],
-            linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch"),
-                .linkedLibrary("torch_cpu"),
-            ],
-        ),
+        // ----------------- Example Targets -----------------
         .executableTarget(
             name: "MNISTExample",
             dependencies: ["Torch"],
             path: "Examples/MNIST",
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ],
-            linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch"),
-                .linkedLibrary("torch_cpu"),
-            ],
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
         ),
-
         .executableTarget(
-            name: "CIFAR10Example",
+            name: "ANKIExample",
             dependencies: ["Torch"],
-            path: "Examples/CIFAR10",
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ],
-            linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch"),
-                .linkedLibrary("torch_cpu"),
-            ],
+            path: "Examples/ANKI",
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
+        ),
+        .executableTarget(
+            name: "KARATEExample",
+            dependencies: ["Torch"],
+            path: "Examples/KARATE",
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
         ),
 
         // ----------------- Test Targets -----------------
@@ -194,63 +113,15 @@ let package = Package(
             name: "TensorTests",
             dependencies: ["Torch"],
             path: "Tests/TensorTests",
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ],
-            linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch"),
-                .linkedLibrary("torch_cpu"),
-            ],
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
         ),
         .testTarget(
             name: "TorchTests",
             dependencies: ["Torch"],
             path: "Tests/TorchTests",
-            swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain/usr/include",
-                ]),
-                //.unsafeFlags(["-Xcc", "-I/Library/Developer/CommandLineTools/usr/include"]),
-                .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
-                // ✅ FIX: Added the missing include paths for the Swift compiler's Clang importer.
-                .unsafeFlags(["-Xcc", "-I/Users/pedro/programming/pytorch/install/include"]),
-                .unsafeFlags([
-                    "-Xcc",
-                    "-I/Users/pedro/programming/pytorch/install/include/torch/csrc/api/include",
-                ]),
-            ],
-            linkerSettings: [
-
-                .unsafeFlags(["-L", "/Users/pedro/programming/pytorch/install/lib"]),
-                .unsafeFlags([
-                    "-Xlinker", "-rpath", "-Xlinker",
-                    "/Users/pedro/programming/pytorch/install/lib",
-                ]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch"),
-                .linkedLibrary("torch_cpu"),
-            ],
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
         ),
     ],
     cxxLanguageStandard: .cxx17

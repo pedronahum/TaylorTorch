@@ -1,389 +1,493 @@
-// Sources/Torch/Modules/Layers/Activations.swift
-//
-// WHY
-// - Typed, parameter‑free nonlinearities that compose cleanly with Sequential/Builder.
-// - Zero-cost wrappers over the differentiable Tensor ops (relu/tanh/sigmoid/erf/...).
-// - No trainable parameters → empty ParameterIterable & TangentVector.
-// - `Softplus` delegates to your existing numerically-stable helper.
-//
-// References in this repo: Layer.swift, Sequential.swift, LayerBuilder.swift, Loss.swift (softplus).
-
 import Foundation
 import _Differentiation
 
-/// Functional activation namespace used by layers and examples.
-/// Your hard-variants live in `HardActivations.swift` as `extension Activations { … }`.
-public enum Activations {
-  @inlinable @differentiable(reverse)
-  public static func identity(_ x: Tensor) -> Tensor { x }
-
-  @inlinable @differentiable(reverse)
-  public static func relu(_ x: Tensor) -> Tensor { x.relu() }
-
-  @inlinable @differentiable(reverse)
-  public static func tanh(_ x: Tensor) -> Tensor { x.tanh() }
-
-  @inlinable @differentiable(reverse)
-  public static func sigmoid(_ x: Tensor) -> Tensor { x.sigmoid() }
-
-  @inlinable @differentiable(reverse)
-  public static func exp(_ x: Tensor) -> Tensor { x.exp() }
-
-  @inlinable @differentiable(reverse)
-  public static func log(_ x: Tensor) -> Tensor { x.log() }
-
-  @inlinable @differentiable(reverse)
-  public static func sqrt(_ x: Tensor) -> Tensor { x.sqrt() }
-
-  @inlinable @differentiable(reverse)
-  public static func sin(_ x: Tensor) -> Tensor { x.sin() }
-
-  @inlinable @differentiable(reverse)
-  public static func cos(_ x: Tensor) -> Tensor { x.cos() }
-
-  @inlinable @differentiable(reverse)
-  public static func tan(_ x: Tensor) -> Tensor { x.tan() }
-
-  @inlinable @differentiable(reverse)
-  public static func asin(_ x: Tensor) -> Tensor { x.asin() }
-
-  @inlinable @differentiable(reverse)
-  public static func acos(_ x: Tensor) -> Tensor { x.acos() }
-
-  @inlinable @differentiable(reverse)
-  public static func atan(_ x: Tensor) -> Tensor { x.atan() }
-
-  @inlinable @differentiable(reverse)
-  public static func sinh(_ x: Tensor) -> Tensor { x.sinh() }
-
-  @inlinable @differentiable(reverse)
-  public static func cosh(_ x: Tensor) -> Tensor { x.cosh() }
-
-  @inlinable @differentiable(reverse)
-  public static func asinh(_ x: Tensor) -> Tensor { x.asinh() }
-
-  @inlinable @differentiable(reverse)
-  public static func acosh(_ x: Tensor) -> Tensor { x.acosh() }
-
-  @inlinable @differentiable(reverse)
-  public static func atanh(_ x: Tensor) -> Tensor { x.atanh() }
-
-  @inlinable @differentiable(reverse)
-  public static func erf(_ x: Tensor) -> Tensor { x.erf() }
-
-  @inlinable @differentiable(reverse)
-  public static func erfc(_ x: Tensor) -> Tensor { x.erfc() }
-}
-
 // MARK: - ReLU
-
-/// A parameter-free rectified linear unit activation layer.
 public struct ReLU: Layer {
-  /// Creates a ReLU activation layer.
+  public typealias Input = Tensor
+  public typealias Output = Tensor
   public init() {}
 
-  /// Applies the rectified linear unit element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with negative values clamped to zero.
   @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.relu() }
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.relu() }  // elementwise op. :contentReference[oaicite:6]{index=6}
+}
 
-  /// Applies the rectified linear unit while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with negative values clamped to zero.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { x.relu() }
-
-  // --- Boilerplate (no parameters) ---
-  /// Moves the layer's parameters by `offset`. ReLU has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. ReLU has none.
-  public static var parameterKeyPaths: [WritableKeyPath<ReLU, Tensor>] { [] }
-
-  /// Tangent representation for `ReLU`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// ReLU exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+extension ReLU {
+  // Manual VJP via free closure to avoid the "curried self" path.
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (ReLU.TangentVector, Tensor))
+  {
+    func primal(_ s: ReLU, _ i: Tensor) -> Tensor { i.relu() }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (ReLU.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> ReLU.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }
 
-// MARK: - LeakyReLU
-
-/// A rectified linear unit variant that preserves a small slope for negative inputs.
+// MARK: - LeakyReLU (parameterless; slope is a hyper-parameter)
 public struct LeakyReLU: Layer {
-  /// Negative slope (PyTorch default often 0.01).
-  @noDerivative public var alpha: Double
+  @noDerivative public let negativeSlope: Float
+  public init(negativeSlope: Float = 0.01) { self.negativeSlope = negativeSlope }
 
-  /// Creates a leaky-ReLU activation.
-  /// - Parameter alpha: Negative slope applied to inputs less than zero.
-  public init(alpha: Double = 0.01) { self.alpha = alpha }
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  /// Applies the leaky-ReLU nonlinearity element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor where negative elements are scaled by `alpha`.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
-    // y = relu(x) - α * relu(-x)
-    x.relu().adding(x.negated().relu().multiplying(-alpha))
-  }
-
-  /// Applies the leaky-ReLU nonlinearity while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor where negative elements are scaled by `alpha`.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
-
-  // --- Boilerplate (no parameters) ---
-  /// Moves the layer's parameters by `offset`. Leaky-ReLU has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. Leaky-ReLU has none.
-  public static var parameterKeyPaths: [WritableKeyPath<LeakyReLU, Tensor>] { [] }
-  /// Tangent representation for `LeakyReLU`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Leaky-ReLU exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+    // leaky_relu(x) = relu(x) - a * relu(-x)  (no non-diff max/min needed). :contentReference[oaicite:7]{index=7}
+    x.relu().subtracting(x.negated().relu().multiplying(negativeSlope))
   }
 }
 
-// MARK: - Sigmoid
+extension LeakyReLU {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (LeakyReLU.TangentVector, Tensor))
+  {
+    func primal(_ s: LeakyReLU, _ i: Tensor) -> Tensor {
+      i.relu().subtracting(i.negated().relu().multiplying(s.negativeSlope))
+    }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (LeakyReLU.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> LeakyReLU.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
 
-/// A logistic sigmoid activation layer.
-public struct Sigmoid: Layer {
-  /// Creates a sigmoid activation layer.
+// MARK: - SiLU / Swish: x * sigmoid(x)
+public struct SiLU: Layer {
   public init() {}
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  /// Applies the logistic sigmoid element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with values squeezed to `(0, 1)`.
   @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.sigmoid() }
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.multiplying(x.sigmoid()) }  // :contentReference[oaicite:8]{index=8}
+}
 
-  /// Applies the logistic sigmoid while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with values squeezed to `(0, 1)`.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { x.sigmoid() }
-
-  // --- Boilerplate ---
-  /// Moves the layer's parameters by `offset`. Sigmoid has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. Sigmoid has none.
-  public static var parameterKeyPaths: [WritableKeyPath<Sigmoid, Tensor>] { [] }
-  /// Tangent representation for `Sigmoid`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Sigmoid exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+extension SiLU {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (SiLU.TangentVector, Tensor))
+  {
+    func primal(_ s: SiLU, _ i: Tensor) -> Tensor { i.multiplying(i.sigmoid()) }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (SiLU.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> SiLU.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }
 
-// MARK: - Tanh
-
-/// A hyperbolic tangent activation layer.
-public struct Tanh: Layer {
-  /// Creates a hyperbolic tangent activation layer.
-  public init() {}
-
-  /// Applies the hyperbolic tangent element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with values compressed to `[-1, 1]`.
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.tanh() }
-
-  /// Applies the hyperbolic tangent while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with values compressed to `[-1, 1]`.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { x.tanh() }
-
-  // --- Boilerplate ---
-  /// Moves the layer's parameters by `offset`. Tanh has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. Tanh has none.
-  public static var parameterKeyPaths: [WritableKeyPath<Tanh, Tensor>] { [] }
-  /// Tangent representation for `Tanh`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Tanh exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
-  }
-}
-
-// MARK: - GELU (exact / tanh approximation)
-
-/// A Gaussian error linear unit activation layer.
+// MARK: - GELU (exact via erf, or fast tanh-approx)
 public struct GELU: Layer {
-  /// When `true`, uses Hendrycks & Gimpel tanh approximation.
-  @noDerivative public var approximate: Bool
+  @noDerivative public let approximate: Bool
+  public init(approximate: Bool = true) { self.approximate = approximate }
 
-  /// Creates a GELU activation layer.
-  /// - Parameter approximate: Whether to use the tanh approximation for improved throughput.
-  public init(approximate: Bool = false) { self.approximate = approximate }
+  public typealias Input = Tensor
+  public typealias Output = Tensor
 
-  /// Applies the GELU nonlinearity to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with values transformed according to the GELU formula.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     if approximate {
       // 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 x^3)))
-      let kappa = Tensor(Foundation.sqrt(2.0 / Double.pi))
-      let inner = x.adding(0.044715 * x.multiplying(x).multiplying(x))
-      return 0.5 * x.multiplying((1.0 + (kappa.multiplying(inner)).tanh()))
+      let k: Float = 0.7978845608028654  // √(2/π)
+      let c: Float = 0.044715
+      let inner = x.adding(x.pow(3).multiplying(c)).multiplying(k)  // pow has VJP. :contentReference[oaicite:9]{index=9}
+      return x.multiplying(0.5).multiplying(inner.tanh().adding(1))  // tanh VJP exists. :contentReference[oaicite:10]{index=10}
     } else {
       // 0.5 * x * (1 + erf(x / √2))
-      let invSqrt2 = 1.0 / Foundation.sqrt(2.0)
-      return 0.5 * x.multiplying(1.0 + (x.multiplying(invSqrt2)).erf())
+      let invRt2: Float = 0.7071067811865476
+      return x.multiplying(0.5).multiplying(x.multiplying(invRt2).erf().adding(1))  // erf VJP exists. :contentReference[oaicite:11]{index=11}
     }
   }
+}
 
-  /// Applies the GELU nonlinearity while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with values transformed according to the GELU formula.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
+extension GELU {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (GELU.TangentVector, Tensor))
+  {
+    let y = callAsFunction(x)
 
-  // --- Boilerplate ---
-  /// Moves the layer's parameters by `offset`. GELU has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. GELU has none.
-  public static var parameterKeyPaths: [WritableKeyPath<GELU, Tensor>] { [] }
-  /// Tangent representation for `GELU`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// GELU exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+    let derivative: Tensor
+    if approximate {
+      let k = Tensor(0.7978845608028654, dtype: x.dtype ?? .float32, device: x.device)  // √(2/π)
+      let c = Tensor(0.044715, dtype: x.dtype ?? .float32, device: x.device)
+      let half = Tensor(0.5, dtype: x.dtype ?? .float32, device: x.device)
+
+      let xSquared = x.multiplying(x)
+      let inner = k.multiplying(x.adding(xSquared.multiplying(x).multiplying(c)))
+      let tanhInner = inner.tanh()
+      let sech2 = Tensor(1, dtype: x.dtype ?? .float32, device: x.device).subtracting(tanhInner.multiplying(tanhInner))
+      let fPrime = k.multiplying(Tensor(1, dtype: x.dtype ?? .float32, device: x.device).adding(xSquared.multiplying(c).multiplying(3)))
+      derivative = half.multiplying(tanhInner.adding(1)).adding(half.multiplying(x).multiplying(sech2).multiplying(fPrime))
+    } else {
+      let dtype = x.dtype ?? .float32
+      let device = x.device
+      let half = Tensor(0.5, dtype: dtype, device: device)
+      let invRt2 = Tensor(0.7071067811865476, dtype: dtype, device: device)
+      let sqrt2OverPi = Tensor(0.7978845608028654, dtype: dtype, device: device)
+      let base = x.multiplying(invRt2).erf().adding(1)
+      let expTerm = x.multiplying(x).dividing(-2).exp()
+      derivative = half.multiplying(base).adding(x.multiplying(expTerm).multiplying(sqrt2OverPi))
+    }
+
+    return (
+      y,
+      { v in
+        let dx = v.multiplying(derivative)
+        return (GELU.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> GELU.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }
 
-// MARK: - SiLU / Swish (x * sigmoid(x))
-
-/// A sigmoid-weighted linear unit (Swish) activation layer.
-public struct SiLU: Layer {
-  /// Creates a SiLU activation layer.
+// MARK: - Tanh / Sigmoid (thin wrappers)
+public struct Tanh: Layer {
   public init() {}
-
-  /// Applies the SiLU activation element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with values transformed according to `x * sigmoid(x)`.
-  @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.multiplying(x.sigmoid()) }
-
-  /// Applies the SiLU activation while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with values transformed according to `x * sigmoid(x)`.
-  @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
-
-  // --- Boilerplate ---
-  /// Moves the layer's parameters by `offset`. SiLU has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. SiLU has none.
-  public static var parameterKeyPaths: [WritableKeyPath<SiLU, Tensor>] { [] }
-  /// Tangent representation for `SiLU`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// SiLU exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+  @differentiable(reverse) public func callAsFunction(_ x: Tensor) -> Tensor { x.tanh() }  // :contentReference[oaicite:12]{index=12}
+}
+extension Tanh {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (Tanh.TangentVector, Tensor))
+  {
+    func primal(_ s: Tanh, _ i: Tensor) -> Tensor { i.tanh() }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (Tanh.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> Tanh.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }
 
-// MARK: - Softplus
-
-/// A softplus activation layer that smooths its ReLU counterpart.
-public struct Softplus: Layer {
-  /// Creates a softplus activation layer.
+public struct Sigmoid: Layer {
   public init() {}
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+  @differentiable(reverse) public func callAsFunction(_ x: Tensor) -> Tensor { x.sigmoid() }  // :contentReference[oaicite:13]{index=13}
+}
+extension Sigmoid {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (Sigmoid.TangentVector, Tensor))
+  {
+    func primal(_ s: Sigmoid, _ i: Tensor) -> Tensor { i.sigmoid() }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (Sigmoid.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> Sigmoid.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
 
-  /// Applies the softplus activation element-wise to `x`.
-  /// - Parameter x: Input tensor received from the previous layer.
-  /// - Returns: A tensor with values transformed according to `log(1 + exp(x))`.
+// MARK: - ELU (alpha is hyper-parameter)
+public struct ELU: Layer {
+  @noDerivative public let alpha: Float
+  public init(alpha: Float = 1.0) { self.alpha = alpha }
+
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
-    // Delegate to your numerically-stable helper.
-    softplus(x)
+    // where x>0 ? x : alpha*(exp(x)-1) — route grad via TorchWhere.select. :contentReference[oaicite:14]{index=14}
+    let cond = withoutDerivative(at: x.gt(0))  // boolean mask
+    let pos = x
+    let neg = x.exp().subtracting(1).multiplying(alpha)
+    return TorchWhere.select(condition: cond, pos, neg)  // differentiable select. :contentReference[oaicite:15]{index=15}
   }
+}
+extension ELU {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (ELU.TangentVector, Tensor))
+  {
+    func primal(_ s: ELU, _ i: Tensor) -> Tensor {
+      let cond = withoutDerivative(at: i.gt(0))
+      let pos = i
+      let neg = i.exp().subtracting(1).multiplying(s.alpha)
+      return TorchWhere.select(condition: cond, pos, neg)
+    }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (ELU.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> ELU.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
 
-  /// Applies the softplus activation while capturing the forward context.
-  /// - Parameters:
-  ///   - x: Input tensor received from the previous layer.
-  ///   - context: Forward-context handle that records intermediate values.
-  /// - Returns: A tensor with values transformed according to `log(1 + exp(x))`.
+// MARK: - Softplus: y = (1/β) * log(1 + exp(βx)) with stable branching
+public struct Softplus: Layer {
+  @noDerivative public let beta: Float
+  public init(beta: Float = 1.0) { self.beta = beta }
+
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+
   @differentiable(reverse)
-  public func call(_ x: Tensor, context: ForwardContext) -> Tensor { callAsFunction(x) }
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    // Stable form:
+    // z = βx
+    // if z > 0: z + log(1 + exp(-z)) else: log(1 + exp(z))
+    let z = x.multiplying(beta)
+    let one = Tensor(1)
+    let pos = z.adding((z.negated()).exp().adding(one).log())
+    let neg = z.exp().adding(one).log()
+    let cond = withoutDerivative(at: z.gt(0))
+    return TorchWhere.select(condition: cond, pos, neg).dividing(beta)  // select has VJP. :contentReference[oaicite:16]{index=16}
+  }
+}
+extension Softplus {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (Softplus.TangentVector, Tensor))
+  {
+    func primal(_ s: Softplus, _ i: Tensor) -> Tensor {
+      let z = i.multiplying(s.beta)
+      let one = Tensor(1)
+      let pos = z.adding((z.negated()).exp().adding(one).log())
+      let neg = z.exp().adding(one).log()
+      let cond = withoutDerivative(at: z.gt(0))
+      return TorchWhere.select(condition: cond, pos, neg).dividing(s.beta)
+    }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (Softplus.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> Softplus.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
 
-  // --- Boilerplate ---
-  /// Moves the layer's parameters by `offset`. Softplus has no parameters, so this is a no-op.
-  public mutating func move(by offset: TangentVector) {}
-  /// Returns the writable key paths for trainable parameters. Softplus has none.
-  public static var parameterKeyPaths: [WritableKeyPath<Softplus, Tensor>] { [] }
-  /// Tangent representation for `Softplus`, which is always empty.
-  public struct TangentVector: Differentiable, AdditiveArithmetic, ParameterIterable {
-    /// Creates an empty tangent vector.
-    public init() {}
-    /// The additive identity for the tangent vector.
-    public static var zero: TangentVector { .init() }
-    /// Adds two tangent vectors. No-op because the tangent vector is empty.
-    public static func + (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Subtracts two tangent vectors. No-op because the tangent vector is empty.
-    public static func - (l: TangentVector, r: TangentVector) -> TangentVector { .init() }
-    /// Softplus exposes no parameter key paths.
-    public static var parameterKeyPaths: [WritableKeyPath<TangentVector, Tensor>] { [] }
+// MARK: - Softmax (axis-aware; stable with detached shift)
+public struct Softmax: Layer {
+  @noDerivative public let axis: Int
+  public init(axis: Int = -1) { self.axis = axis }
+
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    let a = withoutDerivative(at: _normalizeDimension(axis, rank: x.rank))  // supports negatives. :contentReference[oaicite:17]{index=17}
+    // Detach the shift (max) so we do not need a derivative for max. :contentReference[oaicite:18]{index=18}
+    let shift = withoutDerivative(at: x.max(dim: a, keepdim: true).values)
+    let expX = (x - shift).exp()  // exp VJP. :contentReference[oaicite:19]{index=19}
+    let denom = expX.sum(dim: a, keepdim: true)  // sum VJP. :contentReference[oaicite:20]{index=20}
+    return expX.dividing(denom)
+  }
+}
+extension Softmax {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (Softmax.TangentVector, Tensor))
+  {
+    func primal(_ s: Softmax, _ i: Tensor) -> Tensor {
+      let a = withoutDerivative(at: _normalizeDimension(s.axis, rank: i.rank))
+      let shift = withoutDerivative(at: i.max(dim: a, keepdim: true).values)
+      let expX = (i - shift).exp()
+      let denom = expX.sum(dim: a, keepdim: true)
+      return expX.dividing(denom)
+    }
+    let (y, pb) = valueWithPullback(at: self, x, of: primal)
+    return (
+      y,
+      { v in
+        let (_, dx) = pb(v)
+        return (.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> Softmax.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
+  }
+}
+
+// MARK: - LogSoftmax (axis-aware; stable with detached shift)
+public struct LogSoftmax: Layer {
+  @noDerivative public let axis: Int
+  public init(axis: Int = -1) { self.axis = axis }
+
+  public typealias Input = Tensor
+  public typealias Output = Tensor
+
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor {
+    let a = _normalizeDimension(axis, rank: x.rank)  // :contentReference[oaicite:21]{index=21}
+    let shift = withoutDerivative(at: x.max(dim: a, keepdim: true).values)  // :contentReference[oaicite:22]{index=22}
+    let z = x - shift
+    let lse = z.exp().sum(dim: a, keepdim: true).log()  // log VJP exists. :contentReference[oaicite:23]{index=23}
+    return z - lse
+  }
+}
+extension LogSoftmax {
+  @derivative(of: callAsFunction, wrt: (self, x))
+  public func _vjpCallAsFunction(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> (LogSoftmax.TangentVector, Tensor))
+  {
+    let axisNorm = withoutDerivative(at: _normalizeDimension(axis, rank: x.rank))
+    let y = callAsFunction(x)
+    let soft = y.exp()
+    return (
+      y,
+      { v in
+        let sumV = v.sum(dim: axisNorm, keepdim: true)
+        let dx = v - soft.multiplying(sumV)
+        return (LogSoftmax.TangentVector.zero, dx)
+      }
+    )
+  }
+  @derivative(of: callAsFunction, wrt: (self))
+  public func _vjpCallAsFunction_wrtSelf(_ x: Tensor)
+    -> (value: Tensor, pullback: (Tensor) -> LogSoftmax.TangentVector)
+  {
+    let (y, pbBoth) = _vjpCallAsFunction(x)
+    return (
+      y,
+      { v in
+        let (dSelf, _) = pbBoth(v)
+        return dSelf
+      }
+    )
   }
 }
