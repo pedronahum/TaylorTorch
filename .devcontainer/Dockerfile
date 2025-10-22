@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libz3-dev \
     pkg-config \
-    python3-lldb-13 \
+    python3-lldb \
     tzdata \
     unzip \
     zip \
