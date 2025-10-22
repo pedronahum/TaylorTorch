@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y \
     git \
     libgoogle-glog-dev \
     libgtest-dev \
-    libiomp-dev \
+    libomp-dev \
     libleveldb-dev \
     liblmdb-dev \
     libopencv-dev \
