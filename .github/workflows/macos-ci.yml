@@ -35,7 +35,7 @@ jobs:
 
     - name: Install Python packages for PyTorch
       run: |
-        pip3 install --break-all-system-packages \
+        pip3 install --break-system-packages \
           numpy \
           pyyaml \
           typing_extensions \
