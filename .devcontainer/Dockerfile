@@ -103,29 +103,25 @@ RUN cd pytorch && \
     CFLAGS="-I/usr/lib/llvm-17/include" \
     CXXFLAGS="-I/usr/lib/llvm-17/include" \
     cmake .. \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
-      -DCMAKE_C_FLAGS="-I/usr/lib/llvm-17/include" \
-      -DCMAKE_CXX_FLAGS="-I/usr/lib/llvm-17/include" \
-      -DOpenMP_C_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
-      -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
-      -DOpenMP_C_LIB_NAMES="libomp" \
-      -DOpenMP_CXX_LIB_NAMES="libomp" \
-      -DOpenMP_libomp_LIBRARY="/usr/lib/llvm-17/lib/libomp.so" \
-      -DBUILD_SHARED_LIBS=ON \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
-      -DBUILD_PYTHON=OFF \
-      -DBUILD_TEST=OFF \
-      -DBUILD_CAFFE2=ON \
-      -DUSE_DISTRIBUTED=OFF \
-      -DUSE_MPS=OFF \
-      -DUSE_NNPACK=ON \
-      -DUSE_XNNPACK=ON \
-      -DUSE_OPENMP=ON \
-      -DUSE_SYSTEM_BLAS=ON \
-      -DUSE_CUDA=OFF \
-      -DPYTHON_EXECUTABLE=$(which python3) && \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_C_FLAGS="-I/usr/lib/llvm-17/include" \
+    -DCMAKE_CXX_FLAGS="-I/usr/lib/llvm-17/include" \
+    -DOpenMP_C_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
+    -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
+    -DOpenMP_C_LIB_NAMES="libomp" \
+    -DOpenMP_CXX_LIB_NAMES="libomp" \
+    -DOpenMP_libomp_LIBRARY="/usr/lib/llvm-17/lib/libomp.so" \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
+    -DBUILD_PYTHON=OFF \
+    -DBUILD_TEST=OFF \
+    -DBUILD_CAFFE2=OFF \
+    -DUSE_DISTRIBUTED=OFF \
+    -DUSE_MPS=OFF \
+    -DUSE_CUDA=OFF \
+    -DPYTHON_EXECUTABLE=$(which python3) && \
     cmake --build . --target install -j$(nproc)
 
 # Set up PyTorch environment variables for Package.swift
@@ -138,6 +134,7 @@ ENV CMAKE_PREFIX_PATH=${PYTORCH_ROOT}:${CMAKE_PREFIX_PATH}
 ENV SWIFT_TOOLCHAIN_DIR=/usr
 ENV SWIFT_LIB_DIR=/usr/lib/swift
 ENV SWIFT_INCLUDE_DIR=/usr/include
+ENV SWIFTPM_SWIFT_EXEC=/usr/bin/swift
 
 # Clean up build directory to save space
 RUN rm -rf /tmp/pytorch-build
@@ -158,6 +155,7 @@ RUN echo 'export CC=clang' >> ~/.bashrc && \
     echo 'export PATH=/usr/bin:$PATH' >> ~/.bashrc && \
     echo 'export PYTORCH_INSTALL_DIR=/opt/pytorch' >> ~/.bashrc && \
     echo 'export SWIFT_TOOLCHAIN_DIR=/usr' >> ~/.bashrc && \
+    echo 'export SWIFTPM_SWIFT_EXEC=/usr/bin/swift' >> ~/.bashrc && \
     echo 'export LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
 
 # Default command

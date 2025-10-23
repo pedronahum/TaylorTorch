@@ -22,6 +22,22 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Install Xcode Command Line Tools
+      run: |
+        # Check if command line tools are already installed
+        if ! xcode-select -p &> /dev/null; then
+          echo "Installing Xcode Command Line Tools..."
+          xcode-select --install
+          # Wait for installation to complete
+          until xcode-select -p &> /dev/null; do
+            sleep 5
+          done
+        else
+          echo "Xcode Command Line Tools already installed at: $(xcode-select -p)"
+        fi
+        # Accept license if needed
+        sudo xcodebuild -license accept 2>/dev/null || true
+
     - name: Install Homebrew dependencies
       run: |
         brew update
@@ -60,8 +76,6 @@ jobs:
 
     - name: Select Swift toolchain
       run: |
-        export TOOLCHAINS=swift
-
         # Search for the toolchain in both user and system locations
         if [ -d ~/Library/Developer/Toolchains ]; then
           SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
@@ -85,9 +99,23 @@ jobs:
           exit 1
         fi
 
+        # Get the toolchain identifier from Info.plist
+        TOOLCHAIN_INFO_PLIST="${SWIFT_TOOLCHAIN_PATH}/Info.plist"
+        if [ -f "$TOOLCHAIN_INFO_PLIST" ]; then
+          TOOLCHAIN_IDENTIFIER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$TOOLCHAIN_INFO_PLIST" 2>/dev/null || echo "")
+          if [ -z "$TOOLCHAIN_IDENTIFIER" ]; then
+            # Fallback: try to extract from filename
+            TOOLCHAIN_IDENTIFIER="org.swift.$(echo ${SWIFT_VERSION} | sed 's/swift-DEVELOPMENT-SNAPSHOT-//' | sed 's/-a$//' | tr -d '-')"
+          fi
+        else
+          # Fallback identifier
+          TOOLCHAIN_IDENTIFIER="swift"
+        fi
+
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
-        echo "TOOLCHAINS=swift" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_PATH}/usr/bin/swift" >> $GITHUB_ENV
+        echo "TOOLCHAINS=${TOOLCHAIN_IDENTIFIER}" >> $GITHUB_ENV
         echo "${SWIFT_TOOLCHAIN_PATH}/usr/bin" >> $GITHUB_PATH
 
         # Verify clang exists
@@ -97,7 +125,12 @@ jobs:
         fi
 
         echo "Swift toolchain path: $SWIFT_TOOLCHAIN_PATH"
+        echo "Toolchain identifier: $TOOLCHAIN_IDENTIFIER"
         echo "Clang path: ${SWIFT_TOOLCHAIN_PATH}/usr/bin/clang"
+        echo "Swift binary: ${SWIFT_TOOLCHAIN_PATH}/usr/bin/swift"
+
+        # Set TOOLCHAINS for this step and verify
+        export TOOLCHAINS="${TOOLCHAIN_IDENTIFIER}"
         swift --version
 
     - name: Cache PyTorch build
@@ -156,13 +189,9 @@ jobs:
           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/pytorch-install \
           -DBUILD_PYTHON=OFF \
           -DBUILD_TEST=OFF \
-          -DBUILD_CAFFE2=ON \
+          -DBUILD_CAFFE2=OFF \
           -DUSE_DISTRIBUTED=OFF \
-          -DUSE_MPS=ON \
-          -DUSE_NNPACK=ON \
-          -DUSE_XNNPACK=ON \
-          -DUSE_OPENMP=ON \
-          -DUSE_SYSTEM_BLAS=ON \
+          -DUSE_MPS=OFF \
           -DUSE_CUDA=OFF \
           -DPYTHON_EXECUTABLE=$(which python3) \
           -GNinja

@@ -150,13 +150,9 @@ jobs:
           -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
           -DBUILD_PYTHON=OFF \
           -DBUILD_TEST=OFF \
-          -DBUILD_CAFFE2=ON \
+          -DBUILD_CAFFE2=OFF \
           -DUSE_DISTRIBUTED=OFF \
           -DUSE_MPS=OFF \
-          -DUSE_NNPACK=ON \
-          -DUSE_XNNPACK=ON \
-          -DUSE_OPENMP=ON \
-          -DUSE_SYSTEM_BLAS=ON \
           -DUSE_CUDA=OFF \
           -DPYTHON_EXECUTABLE=$(which python3)
         cmake --build . --target install -j$(nproc)
@@ -171,6 +167,7 @@ jobs:
       run: |
         echo "PYTORCH_INSTALL_DIR=/opt/pytorch" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=/usr/bin/swift" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
         echo "/opt/pytorch/lib" | sudo tee -a /etc/ld.so.conf.d/pytorch.conf
         sudo ldconfig
