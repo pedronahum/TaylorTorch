@@ -61,7 +61,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages needed for PyTorch build
-RUN pip3 install --no-cache-dir \
+RUN pip3 install --no-cache-dir --break-system-packages \
     numpy \
     pyyaml \
     typing_extensions \
@@ -84,6 +84,54 @@ ENV CXX=clang++
 # Verify Swift installation
 RUN swift --version
 
+# Build PyTorch from source
+ENV PYTORCH_VERSION=v2.8.0
+WORKDIR /tmp/pytorch-build
+
+# Clone and checkout PyTorch
+RUN git clone --recursive https://github.com/pytorch/pytorch.git && \
+    cd pytorch && \
+    git checkout ${PYTORCH_VERSION} && \
+    git submodule sync && \
+    git submodule update --init --recursive
+
+# Configure and build PyTorch with CMake using Swift's clang/clang++
+RUN cd pytorch && \
+    mkdir -p build && \
+    cd build && \
+    CC=clang CXX=clang++ cmake .. \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      -DBUILD_SHARED_LIBS=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
+      -DBUILD_PYTHON=OFF \
+      -DBUILD_TEST=OFF \
+      -DBUILD_CAFFE2=ON \
+      -DUSE_DISTRIBUTED=OFF \
+      -DUSE_MPS=OFF \
+      -DUSE_NNPACK=ON \
+      -DUSE_XNNPACK=ON \
+      -DUSE_OPENMP=ON \
+      -DUSE_SYSTEM_BLAS=ON \
+      -DUSE_CUDA=OFF \
+      -DPYTHON_EXECUTABLE=$(which python3) && \
+    cmake --build . --target install -j$(nproc)
+
+# Set up PyTorch environment variables for Package.swift
+ENV PYTORCH_INSTALL_DIR=/opt/pytorch
+ENV PYTORCH_ROOT=/opt/pytorch
+ENV LD_LIBRARY_PATH=${PYTORCH_ROOT}/lib:${LD_LIBRARY_PATH}
+ENV CMAKE_PREFIX_PATH=${PYTORCH_ROOT}:${CMAKE_PREFIX_PATH}
+
+# Set up Swift toolchain environment variables for Package.swift
+ENV SWIFT_TOOLCHAIN_DIR=/usr
+ENV SWIFT_LIB_DIR=/usr/lib/swift
+ENV SWIFT_INCLUDE_DIR=/usr/include
+
+# Clean up build directory to save space
+RUN rm -rf /tmp/pytorch-build
+
 # Create a non-root user for development
 RUN useradd -m -s /bin/bash vscode && \
     echo "vscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -94,10 +142,13 @@ WORKDIR /workspace
 # Switch to non-root user
 USER vscode
 
-# Set up shell for the user
+# Set up shell for the user with all necessary environment variables
 RUN echo 'export CC=clang' >> ~/.bashrc && \
     echo 'export CXX=clang++' >> ~/.bashrc && \
-    echo 'export PATH=/usr/bin:$PATH' >> ~/.bashrc
+    echo 'export PATH=/usr/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PYTORCH_INSTALL_DIR=/opt/pytorch' >> ~/.bashrc && \
+    echo 'export SWIFT_TOOLCHAIN_DIR=/usr' >> ~/.bashrc && \
+    echo 'export LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
 
 # Default command
 CMD ["/bin/bash"]
