@@ -183,7 +183,7 @@ if let cStandardLibraryModuleMap {
         // Use libstdc++ (what PyTorch actually uses in Docker)
         .unsafeFlags(["-stdlib=libstdc++"]),
         // Use old ABI (ABI=0) to match Docker PyTorch build
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "0")
+        .define("_GLIBCXX_USE_CXX11_ABI", to: "0"),
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
@@ -222,10 +222,10 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .library(name: "Torch", targets: ["Torch"]),
-        .executable(name: "MNISTExample", targets: ["MNISTExample"]),
+        .library(name: "Torch", targets: ["Torch"])
+        /*.executable(name: "MNISTExample", targets: ["MNISTExample"]),
         .executable(name: "ANKIExample", targets: ["ANKIExample"]),
-        .executable(name: "KARATEExample", targets: ["KARATEExample"]),
+        .executable(name: "KARATEExample", targets: ["KARATEExample"]),*/
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
@@ -238,14 +238,14 @@ let package = Package(
             publicHeadersPath: "include",
             cxxSettings: allAtenCxxSettings
         ),
-        .executableTarget(
+        /*.executableTarget(
             name: "ATenCXXDoctests",
             dependencies: ["ATenCXX"],
             path: "Sources/ATenCXXDoctests",
             cxxSettings: allAtenCxxDoctestSettings,
             linkerSettings: atenDoctestsLinkerSettings
         ),
-
+        */
         // ----------------- Swift Targets -----------------
         .target(
             name: "Torch",
@@ -256,12 +256,13 @@ let package = Package(
                 "Modules/Context/readme.md", "Modules/Layers/readme.md", "Modules/Graph/readme.md",
                 "Data/README.md",
             ],
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
 
         // ----------------- Example Targets -----------------
-        .executableTarget(
+        /*.executableTarget(
             name: "MNISTExample",
             dependencies: ["Torch"],
             path: "Examples/MNIST",
@@ -281,13 +282,13 @@ let package = Package(
             path: "Examples/KARATE",
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
-        ),
-
+        ),*/
         // ----------------- Test Targets -----------------
         .testTarget(
             name: "TensorTests",
             dependencies: ["Torch"],
             path: "Tests/TensorTests",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -295,6 +296,7 @@ let package = Package(
             name: "TorchTests",
             dependencies: ["Torch"],
             path: "Tests/TorchTests",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),

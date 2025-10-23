@@ -13,3 +13,4 @@ DerivedData/
 .build/
 .cache/
 docs/
+cpptorch_test/build
