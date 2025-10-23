@@ -1,0 +1,147 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+
+    env:
+      SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a
+      PYTORCH_VERSION: v2.8.0
+      PYTORCH_INSTALL_DIR: ${{ github.workspace }}/pytorch-install
+      CC: clang
+      CXX: clang++
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Homebrew dependencies
+      run: |
+        brew update
+        brew install \
+          cmake \
+          ninja \
+          libomp \
+          openblas \
+          protobuf \
+          wget
+
+    - name: Install Python packages for PyTorch
+      run: |
+        pip3 install --break-all-system-packages \
+          numpy \
+          pyyaml \
+          typing_extensions \
+          sympy \
+          cffi \
+          cmake
+
+    - name: Cache Swift toolchain
+      id: cache-swift
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Developer/Toolchains/swift-${{ env.SWIFT_VERSION }}.xctoolchain
+        key: swift-${{ env.SWIFT_VERSION }}-macos
+
+    - name: Download and install Swift
+      if: steps.cache-swift.outputs.cache-hit != 'true'
+      run: |
+        SWIFT_URL=https://download.swift.org/development/xcode/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-osx.pkg
+        wget -q $SWIFT_URL -O swift.pkg
+        sudo installer -pkg swift.pkg -target /
+        rm swift.pkg
+
+    - name: Select Swift toolchain
+      run: |
+        export TOOLCHAINS=swift
+        SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "swift-${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
+        if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
+          SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}.xctoolchain"
+        fi
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV
+        echo "TOOLCHAINS=swift" >> $GITHUB_ENV
+        export PATH="${SWIFT_TOOLCHAIN_PATH}/usr/bin:$PATH"
+        echo "${SWIFT_TOOLCHAIN_PATH}/usr/bin" >> $GITHUB_PATH
+        swift --version
+
+    - name: Cache PyTorch build
+      id: cache-pytorch
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/pytorch-install
+        key: pytorch-${{ env.PYTORCH_VERSION }}-macos-clang-${{ hashFiles('.github/workflows/macos-ci.yml') }}
+
+    - name: Clone PyTorch
+      if: steps.cache-pytorch.outputs.cache-hit != 'true'
+      run: |
+        git clone --recursive https://github.com/pytorch/pytorch.git ${{ github.workspace }}/pytorch-src
+        cd ${{ github.workspace }}/pytorch-src
+        git checkout ${PYTORCH_VERSION}
+        git submodule sync
+        git submodule update --init --recursive
+
+    - name: Build PyTorch
+      if: steps.cache-pytorch.outputs.cache-hit != 'true'
+      run: |
+        cd ${{ github.workspace }}/pytorch-src
+        mkdir -p build
+        cd build
+
+        # Use Swift toolchain's clang
+        SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
+        SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
+
+        CC=$SWIFT_CLANG CXX=$SWIFT_CLANGXX cmake .. \
+          -DCMAKE_C_COMPILER=$SWIFT_CLANG \
+          -DCMAKE_CXX_COMPILER=$SWIFT_CLANGXX \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/pytorch-install \
+          -DBUILD_PYTHON=OFF \
+          -DBUILD_TEST=OFF \
+          -DBUILD_CAFFE2=ON \
+          -DUSE_DISTRIBUTED=OFF \
+          -DUSE_MPS=ON \
+          -DUSE_NNPACK=ON \
+          -DUSE_XNNPACK=ON \
+          -DUSE_OPENMP=ON \
+          -DUSE_SYSTEM_BLAS=ON \
+          -DUSE_CUDA=OFF \
+          -DPYTHON_EXECUTABLE=$(which python3) \
+          -GNinja
+        cmake --build . --target install -j$(sysctl -n hw.ncpu)
+
+    - name: Set up environment
+      run: |
+        echo "PYTORCH_INSTALL_DIR=${{ github.workspace }}/pytorch-install" >> $GITHUB_ENV
+        echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/pytorch-install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+    - name: Verify Swift and PyTorch setup
+      run: |
+        echo "Swift version:"
+        swift --version
+        echo "Swift toolchain dir: $SWIFT_TOOLCHAIN_DIR"
+        echo "PyTorch install dir: $PYTORCH_INSTALL_DIR"
+        echo "Checking PyTorch libraries:"
+        ls -la $PYTORCH_INSTALL_DIR/lib/ | head -20
+
+    - name: Build TaylorTorch
+      run: |
+        swift build -c release
+
+    - name: Run tests
+      run: |
+        swift test -c release
+
+    - name: Build examples
+      run: |
+        swift build -c release --product MNISTExample
+        swift build -c release --product ANKIExample
+        swift build -c release --product KARATEExample

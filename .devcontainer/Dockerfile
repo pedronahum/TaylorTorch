@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y \
     git \
     libgoogle-glog-dev \
     libgtest-dev \
-    libomp-dev \
+    libomp-17-dev \
     libleveldb-dev \
     liblmdb-dev \
     libopencv-dev \
@@ -55,8 +55,8 @@ RUN apt-get update && apt-get install -y \
     python3-setuptools \
     python3-yaml \
     libgflags-dev \
-    libc++-dev \
-    libc++abi-dev \
+    libc++-17-dev \
+    libc++abi-17-dev \
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 

@@ -85,7 +85,8 @@ let package = Package(
                 "Modules/Context/readme.md", "Modules/Layers/readme.md", "Modules/Graph/readme.md",
                 "Data/README.md",
             ],
-            swiftSettings: commonSwiftSettings
+            swiftSettings: commonSwiftSettings,
+            linkerSettings: commonLinkerSettings
         ),
 
         // ----------------- Example Targets -----------------
