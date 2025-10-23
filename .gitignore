@@ -14,3 +14,4 @@ DerivedData/
 .cache/
 docs/
 cpptorch_test/build
+cpptorch_test/libtorch

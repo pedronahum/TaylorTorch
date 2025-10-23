@@ -357,6 +357,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     -DUSE_QNNPACK=OFF \
     -DUSE_FBGEMM=OFF \
     -DPYTHON_EXECUTABLE=$(which python3) \
+    -D_GLIBCXX_USE_CXX11_ABI=1 \
     -GNinja
 
 # Stage 4: Build PyTorch (this is the resource-intensive step)
