@@ -106,6 +106,7 @@ jobs:
     - name: Install Swift to system
       run: |
         sudo cp -r /tmp/swift-toolchain/* /usr/
+        sudo mkdir -p /usr/lib/swift
         sudo chmod -R o+r /usr/lib/swift
         swift --version
 
