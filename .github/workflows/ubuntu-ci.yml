@@ -132,9 +132,19 @@ jobs:
         cd /tmp/pytorch
         mkdir -p build
         cd build
-        CC=clang CXX=clang++ cmake .. \
+        CC=clang CXX=clang++ \
+        CFLAGS="-I/usr/lib/llvm-17/include" \
+        CXXFLAGS="-I/usr/lib/llvm-17/include" \
+        cmake .. \
           -DCMAKE_C_COMPILER=clang \
           -DCMAKE_CXX_COMPILER=clang++ \
+          -DCMAKE_C_FLAGS="-I/usr/lib/llvm-17/include" \
+          -DCMAKE_CXX_FLAGS="-I/usr/lib/llvm-17/include" \
+          -DOpenMP_C_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
+          -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
+          -DOpenMP_C_LIB_NAMES="libomp" \
+          -DOpenMP_CXX_LIB_NAMES="libomp" \
+          -DOpenMP_libomp_LIBRARY="/usr/lib/llvm-17/lib/libomp.so" \
           -DBUILD_SHARED_LIBS=ON \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=/opt/pytorch \

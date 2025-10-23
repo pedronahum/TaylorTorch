@@ -65,10 +65,29 @@ jobs:
         if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
           SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}.xctoolchain"
         fi
+
+        # Verify the toolchain exists
+        if [ ! -d "$SWIFT_TOOLCHAIN_PATH" ]; then
+          echo "Error: Swift toolchain not found at $SWIFT_TOOLCHAIN_PATH"
+          echo "Searching for toolchains..."
+          find ~/Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
+          find /Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
+          exit 1
+        fi
+
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "TOOLCHAINS=swift" >> $GITHUB_ENV
-        export PATH="${SWIFT_TOOLCHAIN_PATH}/usr/bin:$PATH"
         echo "${SWIFT_TOOLCHAIN_PATH}/usr/bin" >> $GITHUB_PATH
+
+        # Verify clang exists
+        if [ ! -f "${SWIFT_TOOLCHAIN_PATH}/usr/bin/clang" ]; then
+          echo "Error: clang not found at ${SWIFT_TOOLCHAIN_PATH}/usr/bin/clang"
+          exit 1
+        fi
+
+        echo "Swift toolchain path: $SWIFT_TOOLCHAIN_PATH"
+        echo "Clang path: ${SWIFT_TOOLCHAIN_PATH}/usr/bin/clang"
         swift --version
 
     - name: Cache PyTorch build
@@ -90,13 +109,34 @@ jobs:
     - name: Build PyTorch
       if: steps.cache-pytorch.outputs.cache-hit != 'true'
       run: |
-        cd ${{ github.workspace }}/pytorch-src
-        mkdir -p build
-        cd build
+        # Verify SWIFT_TOOLCHAIN_DIR is set
+        if [ -z "$SWIFT_TOOLCHAIN_DIR" ]; then
+          echo "Error: SWIFT_TOOLCHAIN_DIR is not set"
+          exit 1
+        fi
+
+        echo "SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
 
         # Use Swift toolchain's clang
         SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
         SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
+
+        # Verify compilers exist
+        if [ ! -f "$SWIFT_CLANG" ]; then
+          echo "Error: clang not found at $SWIFT_CLANG"
+          exit 1
+        fi
+        if [ ! -f "$SWIFT_CLANGXX" ]; then
+          echo "Error: clang++ not found at $SWIFT_CLANGXX"
+          exit 1
+        fi
+
+        echo "Using clang: $SWIFT_CLANG"
+        echo "Using clang++: $SWIFT_CLANGXX"
+
+        cd ${{ github.workspace }}/pytorch-src
+        mkdir -p build
+        cd build
 
         CC=$SWIFT_CLANG CXX=$SWIFT_CLANGXX cmake .. \
           -DCMAKE_C_COMPILER=$SWIFT_CLANG \
