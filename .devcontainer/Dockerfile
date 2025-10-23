@@ -120,6 +120,10 @@ RUN cd pytorch && \
     -DBUILD_CAFFE2=OFF \
     -DUSE_DISTRIBUTED=OFF \
     -DUSE_MPS=OFF \
+    -DUSE_MKLDNN=OFF \
+    -DUSE_XNNPACK=OFF \
+    -DUSE_QNNPACK=OFF \
+    -DUSE_FBGEMM=OFF \  
     -DUSE_CUDA=OFF \
     -DPYTHON_EXECUTABLE=$(which python3) && \
     cmake --build . --target install -j$(nproc)
