@@ -61,17 +61,27 @@ jobs:
     - name: Select Swift toolchain
       run: |
         export TOOLCHAINS=swift
-        SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "swift-${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
+
+        # Search for the toolchain in both user and system locations
+        if [ -d ~/Library/Developer/Toolchains ]; then
+          SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
+        fi
+
+        if [ -z "$SWIFT_TOOLCHAIN_PATH" ] && [ -d /Library/Developer/Toolchains ]; then
+          SWIFT_TOOLCHAIN_PATH=$(find /Library/Developer/Toolchains -name "${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
+        fi
+
+        # Fallback to direct path
         if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
-          SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}.xctoolchain"
+          SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain"
         fi
 
         # Verify the toolchain exists
         if [ ! -d "$SWIFT_TOOLCHAIN_PATH" ]; then
           echo "Error: Swift toolchain not found at $SWIFT_TOOLCHAIN_PATH"
           echo "Searching for toolchains..."
-          find ~/Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
-          find /Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
+          find /Library/Developer/Toolchains -name "*.xctoolchain" -type d 2>/dev/null || true
+          [ -d ~/Library/Developer/Toolchains ] && find ~/Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
           exit 1
         fi
 
