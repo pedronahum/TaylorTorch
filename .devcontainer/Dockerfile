@@ -131,7 +131,30 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     fi && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
-    RESOURCE_INCLUDE="$(clang -print-resource-dir)/include" && \
+    CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
+    LLVM_BASE_DIR="$(realpath ${CLANG_RESOURCE_DIR}/../../..)" && \
+    LIBCXX_INCLUDE_DIR="${LLVM_BASE_DIR}/include/c++/v1" && \
+    LIBCXX_LIBRARY_DIR="${LLVM_BASE_DIR}/lib" && \
+    echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
+    echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
+    echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
+    export USE_LIBCXX=1 && \
+    if [ -n "$CXXFLAGS" ]; then \
+      export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} $CXXFLAGS"; \
+    else \
+      export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}"; \
+    fi && \
+    if [ -n "$LDFLAGS" ]; then \
+      export LDFLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} $LDFLAGS"; \
+    else \
+      export LDFLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}"; \
+    fi && \
+    if [ -n "$LIBRARY_PATH" ]; then \
+      export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
+    else \
+      export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"; \
+    fi && \
+    RESOURCE_INCLUDE="${CLANG_RESOURCE_DIR}/include" && \
     OPENMP_C_FLAGS="-fopenmp=libomp" && \
     OPENMP_CXX_FLAGS="-fopenmp=libomp" && \
     if [ -n "${OMP_INCLUDE_DIR}" ] && [ "${OMP_INCLUDE_DIR}" != "${RESOURCE_INCLUDE}" ]; then \
@@ -144,6 +167,13 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     CC=clang CXX=clang++ cmake .. \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
+      -DCMAKE_CXX_STANDARD=17 \
+      -DCMAKE_CXX_EXTENSIONS=OFF \
+      -DCMAKE_CXX_FLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" \
+      -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
+      -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
+      -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
+      -DUSE_LIBCXX=ON \
       -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
       -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
       -DOpenMP_C_LIB_NAMES="libomp" \
