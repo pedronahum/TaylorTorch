@@ -57,7 +57,7 @@ jobs:
           cmake \
           libgoogle-glog-dev \
           libgtest-dev \
-          libomp-17-dev \
+          libomp-18-dev \
           libleveldb-dev \
           liblmdb-dev \
           libopencv-dev \
@@ -73,8 +73,8 @@ jobs:
           python3-setuptools \
           python3-yaml \
           libgflags-dev \
-          libc++-17-dev \
-          libc++abi-17-dev \
+          libc++-18-dev \
+          libc++abi-18-dev \
           ninja-build
 
     - name: Install Python packages for PyTorch
@@ -138,37 +138,57 @@ jobs:
       run: |
         echo "Checking for OpenMP headers and libraries..."
 
-        # Find omp.h - check clang's resource directory first
-        if [ -f "/usr/lib/llvm-17/lib/clang/17/include/omp.h" ]; then
-          echo "✓ Found omp.h at /usr/lib/llvm-17/lib/clang/17/include/omp.h"
-          OMP_INCLUDE_DIR="/usr/lib/llvm-17/lib/clang/17/include"
-        elif [ -f "/usr/lib/llvm-17/include/omp.h" ]; then
-          echo "✓ Found omp.h at /usr/lib/llvm-17/include/omp.h"
-          OMP_INCLUDE_DIR="/usr/lib/llvm-17/include"
-        elif [ -f "/usr/include/omp.h" ]; then
-          echo "✓ Found omp.h at /usr/include/omp.h"
-          OMP_INCLUDE_DIR="/usr/include"
+        CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)"
+        echo "Clang resource dir: ${CLANG_RESOURCE_DIR}"
+
+        RESOURCE_OMP="${CLANG_RESOURCE_DIR}/include/omp.h"
+        if [ -f "${RESOURCE_OMP}" ]; then
+          OMP_INCLUDE_DIR="$(dirname "${RESOURCE_OMP}")"
+          echo "✓ Found omp.h at ${RESOURCE_OMP}"
         else
-          echo "✗ Searching for omp.h..."
+          for candidate in \
+            "${CLANG_RESOURCE_DIR}/../include" \
+            "/usr/lib/llvm-18/include" \
+            "/usr/lib/llvm-17/include" \
+            "/usr/include"; do
+            if [ -f "${candidate}/omp.h" ]; then
+              OMP_INCLUDE_DIR="${candidate}"
+              echo "✓ Found omp.h at ${candidate}/omp.h"
+              break
+            fi
+          done
+        fi
+
+        if [ -z "${OMP_INCLUDE_DIR}" ]; then
+          echo "✗ omp.h not found - searching..."
           find /usr -name "omp.h" 2>/dev/null | grep -v android || echo "omp.h not found!"
           exit 1
         fi
 
-        # Find libomp.so
-        if [ -f "/usr/lib/llvm-17/lib/libomp.so" ]; then
-          echo "✓ Found libomp.so at /usr/lib/llvm-17/lib/libomp.so"
-          OMP_LIBRARY="/usr/lib/llvm-17/lib/libomp.so"
-        elif [ -f "/usr/lib/x86_64-linux-gnu/libomp.so" ]; then
-          echo "✓ Found libomp.so at /usr/lib/x86_64-linux-gnu/libomp.so"
-          OMP_LIBRARY="/usr/lib/x86_64-linux-gnu/libomp.so"
-        elif [ -f "/usr/lib/x86_64-linux-gnu/libomp.so.5" ]; then
-          echo "✓ Found libomp.so.5 at /usr/lib/x86_64-linux-gnu/libomp.so.5"
-          OMP_LIBRARY="/usr/lib/x86_64-linux-gnu/libomp.so.5"
-        else
-          echo "✗ Searching for libomp.so..."
+        LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")"
+        echo "LLVM base dir: ${LLVM_BASE_DIR}"
+
+        for candidate in \
+          "${LLVM_BASE_DIR}/lib/libomp.so" \
+          "/usr/lib/llvm-18/lib/libomp.so" \
+          "/usr/lib/x86_64-linux-gnu/libomp.so" \
+          "/usr/lib/x86_64-linux-gnu/libomp.so.5"; do
+          if [ -f "${candidate}" ]; then
+            OMP_LIBRARY="${candidate}"
+            echo "✓ Found libomp at ${candidate}"
+            break
+          fi
+        done
+
+        if [ -z "${OMP_LIBRARY}" ]; then
+          echo "✗ libomp.so not found - searching..."
           find /usr -name "libomp.so*" 2>/dev/null | grep -v android || echo "libomp.so not found!"
           exit 1
         fi
+
+        # Canonicalize the include directory path for later comparisons
+        OMP_INCLUDE_DIR="$(realpath "${OMP_INCLUDE_DIR}")"
+        OMP_LIBRARY="$(realpath "${OMP_LIBRARY}")"
 
         echo "OMP_INCLUDE_DIR=${OMP_INCLUDE_DIR}" >> $GITHUB_ENV
         echo "OMP_LIBRARY=${OMP_LIBRARY}" >> $GITHUB_ENV
@@ -184,9 +204,46 @@ jobs:
         cd build
         CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)"
         LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")"
-        LIBCXX_INCLUDE_DIR="${LLVM_BASE_DIR}/include/c++/v1"
-        LIBCXX_LIBRARY_DIR="${LLVM_BASE_DIR}/lib"
         echo "Clang resource dir: ${CLANG_RESOURCE_DIR}"
+        echo "LLVM base dir: ${LLVM_BASE_DIR}"
+
+        LIBCXX_INCLUDE_DIR=""
+        for candidate in \
+          "${LLVM_BASE_DIR}/include/c++/v1" \
+          "/usr/include/c++/v1" \
+          "/usr/lib/llvm-18/include/c++/v1" \
+          "/usr/lib/swift/clang/include/c++/v1"; do
+          if [ -f "${candidate}/cstddef" ]; then
+            LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"
+            break
+          fi
+        done
+
+        if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then
+          echo "ERROR: Unable to locate libc++ headers (missing cstddef)."
+          find "${LLVM_BASE_DIR}" -maxdepth 5 -path "*c++/v1/cstddef" 2>/dev/null | head -20 || true
+          exit 1
+        fi
+
+        LIBCXX_LIBRARY_DIR=""
+        for candidate in \
+          "${LLVM_BASE_DIR}/lib" \
+          "/usr/lib/llvm-18/lib" \
+          "/usr/lib/swift/clang/lib" \
+          "/usr/lib/x86_64-linux-gnu" \
+          "/usr/lib"; do
+          if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
+            LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
+            break
+          fi
+        done
+
+        if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then
+          echo "ERROR: Unable to locate libc++ libraries."
+          find "${LLVM_BASE_DIR}" -name "libc++.so*" 2>/dev/null | head -20 || true
+          exit 1
+        fi
+
         echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}"
         echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}"
 
@@ -209,7 +266,7 @@ jobs:
 
         OPENMP_C_FLAGS="-fopenmp=libomp"
         OPENMP_CXX_FLAGS="-fopenmp=libomp"
-        RESOURCE_INCLUDE="${CLANG_RESOURCE_DIR}/include"
+        RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")"
         if [ -n "$OMP_INCLUDE_DIR" ] && [ "$OMP_INCLUDE_DIR" != "$RESOURCE_INCLUDE" ]; then
           OPENMP_C_FLAGS="$OPENMP_C_FLAGS -I${OMP_INCLUDE_DIR}"
           OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -I${OMP_INCLUDE_DIR}"
@@ -219,6 +276,9 @@ jobs:
           -DCMAKE_CXX_COMPILER=clang++ \
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_EXTENSIONS=OFF \
+          -DCMAKE_CXX_FLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" \
+          -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
           -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
           -DUSE_LIBCXX=ON \
           -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \

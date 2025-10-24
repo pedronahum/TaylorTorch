@@ -117,6 +117,11 @@ jobs:
         # Set SDKROOT to point to macOS SDK (needed for C/C++ compilation)
         SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
         echo "SDKROOT=${SDKROOT}" >> $GITHUB_ENV
+        if [ -n "$LIBRARY_PATH" ]; then
+          echo "LIBRARY_PATH=${SDKROOT}/usr/lib:${LIBRARY_PATH}" >> $GITHUB_ENV
+        else
+          echo "LIBRARY_PATH=${SDKROOT}/usr/lib" >> $GITHUB_ENV
+        fi
         echo "SDK root: $SDKROOT"
 
         # Verify the SDK has essential headers
@@ -147,6 +152,7 @@ jobs:
 
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_PATH}/usr/bin/swift" >> $GITHUB_ENV
         echo "TOOLCHAINS=${TOOLCHAIN_IDENTIFIER}" >> $GITHUB_ENV
         echo "${SWIFT_TOOLCHAIN_PATH}/usr/bin" >> $GITHUB_PATH
