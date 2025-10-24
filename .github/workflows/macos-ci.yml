@@ -223,19 +223,52 @@ jobs:
         swift --version
         echo "Swift toolchain dir: $SWIFT_TOOLCHAIN_DIR"
         echo "PyTorch install dir: $PYTORCH_INSTALL_DIR"
+        echo "SDKROOT: $SDKROOT"
+        echo "TOOLCHAINS: $TOOLCHAINS"
         echo "Checking PyTorch libraries:"
         ls -la $PYTORCH_INSTALL_DIR/lib/ | head -20
 
+        # Verify SDKROOT is set and tgmath.h exists
+        if [ -z "$SDKROOT" ]; then
+          echo "ERROR: SDKROOT is not set!"
+          echo "Setting SDKROOT now..."
+          SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+          echo "SDKROOT=${SDKROOT}" >> $GITHUB_ENV
+        fi
+
+        if [ ! -f "${SDKROOT}/usr/include/tgmath.h" ]; then
+          echo "ERROR: tgmath.h not found at ${SDKROOT}/usr/include/tgmath.h"
+          echo "SDK path: $SDKROOT"
+          echo "Contents of SDK include dir:"
+          ls -la "${SDKROOT}/usr/include/" | head -20
+          exit 1
+        else
+          echo "✓ tgmath.h found at ${SDKROOT}/usr/include/tgmath.h"
+        fi
+
     - name: Build TaylorTorch
       run: |
-        swift build -c release
+        # Ensure environment is set for Swift build
+        export SDKROOT="${SDKROOT}"
+        export TOOLCHAINS="${TOOLCHAINS}"
+
+        echo "Building with:"
+        echo "  SDKROOT: $SDKROOT"
+        echo "  TOOLCHAINS: $TOOLCHAINS"
+        echo "  SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
+
+        swift build -c release -v
 
     - name: Run tests
       run: |
+        export SDKROOT="${SDKROOT}"
+        export TOOLCHAINS="${TOOLCHAINS}"
         swift test -c release
 
     - name: Build examples
       run: |
+        export SDKROOT="${SDKROOT}"
+        export TOOLCHAINS="${TOOLCHAINS}"
         swift build -c release --product MNISTExample
         swift build -c release --product ANKIExample
         swift build -c release --product KARATEExample
