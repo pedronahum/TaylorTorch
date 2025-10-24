@@ -197,9 +197,9 @@ jobs:
           export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}"
         fi
         if [ -n "$LDFLAGS" ]; then
-          export LDFLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} $LDFLAGS"
+          export LDFLAGS="-L${LIBCXX_LIBRARY_DIR} $LDFLAGS"
         else
-          export LDFLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}"
+          export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}"
         fi
         if [ -n "$LIBRARY_PATH" ]; then
           export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"
@@ -219,9 +219,6 @@ jobs:
           -DCMAKE_CXX_COMPILER=clang++ \
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_EXTENSIONS=OFF \
-          -DCMAKE_CXX_FLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" \
-          -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
           -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
           -DUSE_LIBCXX=ON \
           -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
