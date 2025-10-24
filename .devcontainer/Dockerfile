@@ -137,9 +137,6 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     CC=clang CXX=clang++ cmake .. \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
-      -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
-      -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -lc++abi" \
-      -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -lc++abi" \
       -DOpenMP_C_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_C_LIB_NAMES="libomp" \
