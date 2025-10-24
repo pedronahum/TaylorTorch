@@ -256,12 +256,21 @@ jobs:
         echo "  TOOLCHAINS: $TOOLCHAINS"
         echo "  SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
 
+        # Verify tgmath.h exists before building
+        if [ ! -f "${SDKROOT}/usr/include/tgmath.h" ]; then
+          echo "ERROR: tgmath.h not found at ${SDKROOT}/usr/include/tgmath.h"
+          exit 1
+        fi
+
         # Build with explicit SDK and toolchain flags
         export SDKROOT="${SDKROOT}"
         export TOOLCHAINS="${TOOLCHAINS}"
+        export CPATH="${SDKROOT}/usr/include"
 
         swift build -c release \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -Xcc -isysroot -Xcc "${SDKROOT}" \
+          -Xlinker -L -Xlinker "${SDKROOT}/usr/lib" \
           -v
 
     - name: Run tests
@@ -269,19 +278,29 @@ jobs:
         SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
         export SDKROOT="${SDKROOT}"
         export TOOLCHAINS="${TOOLCHAINS}"
+        export CPATH="${SDKROOT}/usr/include"
 
         swift test -c release \
-          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -Xcc -isysroot -Xcc "${SDKROOT}" \
+          -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
 
     - name: Build examples
       run: |
         SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
         export SDKROOT="${SDKROOT}"
         export TOOLCHAINS="${TOOLCHAINS}"
+        export CPATH="${SDKROOT}/usr/include"
 
         swift build -c release --product MNISTExample \
-          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -Xcc -isysroot -Xcc "${SDKROOT}" \
+          -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
         swift build -c release --product ANKIExample \
-          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -Xcc -isysroot -Xcc "${SDKROOT}" \
+          -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
         swift build -c release --product KARATEExample \
-          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -Xcc -isysroot -Xcc "${SDKROOT}" \
+          -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"

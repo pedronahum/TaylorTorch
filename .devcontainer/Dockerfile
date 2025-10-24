@@ -131,12 +131,18 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     fi && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
+    CLANG_RESOURCE_DIR=$(clang -print-resource-dir) && \
+    echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
     CC=clang CXX=clang++ cmake .. \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
+      -DCMAKE_C_FLAGS="-resource-dir ${CLANG_RESOURCE_DIR}" \
+      -DCMAKE_CXX_FLAGS="-resource-dir ${CLANG_RESOURCE_DIR} -stdlib=libc++" \
+      -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -lc++abi" \
+      -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -lc++abi" \
       -DOpenMP_C_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_C_LIB_NAMES="libomp" \
