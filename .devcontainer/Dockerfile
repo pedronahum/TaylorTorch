@@ -134,14 +134,9 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
-    CC=clang CXX=clang++ \
-    CFLAGS="-I${OMP_INCLUDE_DIR}" \
-    CXXFLAGS="-I${OMP_INCLUDE_DIR}" \
-    cmake .. \
+    CC=clang CXX=clang++ cmake .. \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
-      -DCMAKE_C_FLAGS="-I${OMP_INCLUDE_DIR}" \
-      -DCMAKE_CXX_FLAGS="-I${OMP_INCLUDE_DIR}" \
       -DOpenMP_C_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
       -DOpenMP_C_LIB_NAMES="libomp" \
