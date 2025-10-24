@@ -131,14 +131,21 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     fi && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
+    RESOURCE_INCLUDE="$(clang -print-resource-dir)/include" && \
+    OPENMP_C_FLAGS="-fopenmp=libomp" && \
+    OPENMP_CXX_FLAGS="-fopenmp=libomp" && \
+    if [ -n "${OMP_INCLUDE_DIR}" ] && [ "${OMP_INCLUDE_DIR}" != "${RESOURCE_INCLUDE}" ]; then \
+      OPENMP_C_FLAGS="${OPENMP_C_FLAGS} -I${OMP_INCLUDE_DIR}"; \
+      OPENMP_CXX_FLAGS="${OPENMP_CXX_FLAGS} -I${OMP_INCLUDE_DIR}"; \
+    fi && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
     CC=clang CXX=clang++ cmake .. \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
-      -DOpenMP_C_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
-      -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
+      -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
+      -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
       -DOpenMP_C_LIB_NAMES="libomp" \
       -DOpenMP_CXX_LIB_NAMES="libomp" \
       -DOpenMP_libomp_LIBRARY="${OMP_LIBRARY}" \
