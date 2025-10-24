@@ -103,7 +103,10 @@ RUN git clone --recursive https://github.com/pytorch/pytorch.git && \
 
 # Verify and locate OpenMP installation
 RUN echo "Checking for OpenMP headers and libraries..." && \
-    if [ -f "/usr/lib/llvm-17/include/omp.h" ]; then \
+    if [ -f "/usr/lib/llvm-17/lib/clang/17/include/omp.h" ]; then \
+        echo "✓ Found omp.h at /usr/lib/llvm-17/lib/clang/17/include/omp.h"; \
+        OMP_INCLUDE_DIR="/usr/lib/llvm-17/lib/clang/17/include"; \
+    elif [ -f "/usr/lib/llvm-17/include/omp.h" ]; then \
         echo "✓ Found omp.h at /usr/lib/llvm-17/include/omp.h"; \
         OMP_INCLUDE_DIR="/usr/lib/llvm-17/include"; \
     elif [ -f "/usr/include/omp.h" ]; then \
@@ -111,7 +114,7 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
         OMP_INCLUDE_DIR="/usr/include"; \
     else \
         echo "✗ Searching for omp.h..."; \
-        find /usr -name "omp.h" 2>/dev/null || (echo "omp.h not found!" && exit 1); \
+        find /usr -name "omp.h" 2>/dev/null | grep -v android || (echo "omp.h not found!" && exit 1); \
     fi && \
     if [ -f "/usr/lib/llvm-17/lib/libomp.so" ]; then \
         echo "✓ Found libomp.so at /usr/lib/llvm-17/lib/libomp.so"; \
@@ -119,9 +122,12 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     elif [ -f "/usr/lib/x86_64-linux-gnu/libomp.so" ]; then \
         echo "✓ Found libomp.so at /usr/lib/x86_64-linux-gnu/libomp.so"; \
         OMP_LIBRARY="/usr/lib/x86_64-linux-gnu/libomp.so"; \
+    elif [ -f "/usr/lib/x86_64-linux-gnu/libomp.so.5" ]; then \
+        echo "✓ Found libomp.so.5 at /usr/lib/x86_64-linux-gnu/libomp.so.5"; \
+        OMP_LIBRARY="/usr/lib/x86_64-linux-gnu/libomp.so.5"; \
     else \
         echo "✗ Searching for libomp.so..."; \
-        find /usr -name "libomp.so*" 2>/dev/null || (echo "libomp.so not found!" && exit 1); \
+        find /usr -name "libomp.so*" 2>/dev/null | grep -v android || (echo "libomp.so not found!" && exit 1); \
     fi && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \

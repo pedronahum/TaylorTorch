@@ -248,27 +248,40 @@ jobs:
 
     - name: Build TaylorTorch
       run: |
-        # Ensure environment is set for Swift build
-        export SDKROOT="${SDKROOT}"
-        export TOOLCHAINS="${TOOLCHAINS}"
+        # Get SDKROOT dynamically
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 
         echo "Building with:"
         echo "  SDKROOT: $SDKROOT"
         echo "  TOOLCHAINS: $TOOLCHAINS"
         echo "  SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
 
-        swift build -c release -v
+        # Build with explicit SDK and toolchain flags
+        export SDKROOT="${SDKROOT}"
+        export TOOLCHAINS="${TOOLCHAINS}"
+
+        swift build -c release \
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
+          -v
 
     - name: Run tests
       run: |
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
         export SDKROOT="${SDKROOT}"
         export TOOLCHAINS="${TOOLCHAINS}"
-        swift test -c release
+
+        swift test -c release \
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
 
     - name: Build examples
       run: |
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
         export SDKROOT="${SDKROOT}"
         export TOOLCHAINS="${TOOLCHAINS}"
-        swift build -c release --product MNISTExample
-        swift build -c release --product ANKIExample
-        swift build -c release --product KARATEExample
+
+        swift build -c release --product MNISTExample \
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+        swift build -c release --product ANKIExample \
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
+        swift build -c release --product KARATEExample \
+          -Xswiftc -sdk -Xswiftc "${SDKROOT}"
