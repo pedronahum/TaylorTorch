@@ -133,18 +133,37 @@ jobs:
         fi
 
         DARWIN_MODULEMAP="${SDKROOT}/usr/include/module.modulemap"
-        C_STD_MODULEMAP="${SDKROOT}/usr/include/c_standard_library.modulemap"
-
         if [ -f "$DARWIN_MODULEMAP" ]; then
           echo "✓ Found module.modulemap at $DARWIN_MODULEMAP"
         else
-          echo "✗ WARNING: module.modulemap not found at $DARWIN_MODULEMAP"
+          ALT_DARWIN=$(find "${SDKROOT}/usr/include" -name "module.modulemap" -print -quit 2>/dev/null || true)
+          if [ -z "$ALT_DARWIN" ]; then
+            ALT_DARWIN=$(find "${SWIFT_TOOLCHAIN_PATH}/usr/lib/swift/clang/include" -name "module.modulemap" -print -quit 2>/dev/null || true)
+          fi
+          if [ -n "$ALT_DARWIN" ] && [ -f "$ALT_DARWIN" ]; then
+            DARWIN_MODULEMAP="$ALT_DARWIN"
+            echo "✓ Found module.modulemap at $DARWIN_MODULEMAP"
+          else
+            echo "✗ WARNING: module.modulemap not found in SDK or Swift toolchain"
+            DARWIN_MODULEMAP=""
+          fi
         fi
 
+        C_STD_MODULEMAP="${SDKROOT}/usr/include/c_standard_library.modulemap"
         if [ -f "$C_STD_MODULEMAP" ]; then
           echo "✓ Found c_standard_library.modulemap at $C_STD_MODULEMAP"
         else
-          echo "✗ WARNING: c_standard_library.modulemap not found at $C_STD_MODULEMAP"
+          ALT_C_STD=$(find "${SDKROOT}/usr/include" -name "c_standard_library.modulemap" -print -quit 2>/dev/null || true)
+          if [ -z "$ALT_C_STD" ]; then
+            ALT_C_STD=$(find "${SWIFT_TOOLCHAIN_PATH}/usr/lib/swift/clang/include" -name "c_standard_library.modulemap" -print -quit 2>/dev/null || true)
+          fi
+          if [ -n "$ALT_C_STD" ] && [ -f "$ALT_C_STD" ]; then
+            C_STD_MODULEMAP="$ALT_C_STD"
+            echo "✓ Found c_standard_library.modulemap at $C_STD_MODULEMAP"
+          else
+            echo "✗ WARNING: c_standard_library.modulemap not found in SDK or Swift toolchain"
+            C_STD_MODULEMAP=""
+          fi
         fi
 
         echo "DARWIN_MODULEMAP=${DARWIN_MODULEMAP}" >> $GITHUB_ENV
@@ -295,18 +314,22 @@ jobs:
         export DARWIN_MODULEMAP
         export C_STANDARD_LIBRARY_MODULEMAP
 
-        for modulemap in "$DARWIN_MODULEMAP" "$C_STANDARD_LIBRARY_MODULEMAP"; do
-          if [ ! -f "$modulemap" ]; then
-            echo "ERROR: Required module map not found at $modulemap"
-            exit 1
-          fi
-        done
+        MODULEMAP_FLAGS=()
+        if [ -n "${DARWIN_MODULEMAP:-}" ] && [ -f "$DARWIN_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${DARWIN_MODULEMAP}")
+        else
+          echo "WARNING: DARWIN_MODULEMAP not set or missing (${DARWIN_MODULEMAP:-unset}); continuing without explicit module.modulemap."
+        fi
+        if [ -n "${C_STANDARD_LIBRARY_MODULEMAP:-}" ] && [ -f "$C_STANDARD_LIBRARY_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${C_STANDARD_LIBRARY_MODULEMAP}")
+        else
+          echo "WARNING: C_STANDARD_LIBRARY_MODULEMAP not set or missing (${C_STANDARD_LIBRARY_MODULEMAP:-unset}); continuing without explicit c_standard_library.modulemap."
+        fi
 
         swift build -c release \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
           -Xcc -isysroot -Xcc "${SDKROOT}" \
-          -Xcc -fmodule-map-file="${DARWIN_MODULEMAP}" \
-          -Xcc -fmodule-map-file="${C_STANDARD_LIBRARY_MODULEMAP}" \
+          "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib" \
           -v
 
@@ -321,18 +344,22 @@ jobs:
         export DARWIN_MODULEMAP
         export C_STANDARD_LIBRARY_MODULEMAP
 
-        for modulemap in "$DARWIN_MODULEMAP" "$C_STANDARD_LIBRARY_MODULEMAP"; do
-          if [ ! -f "$modulemap" ]; then
-            echo "ERROR: Required module map not found at $modulemap"
-            exit 1
-          fi
-        done
+        MODULEMAP_FLAGS=()
+        if [ -n "${DARWIN_MODULEMAP:-}" ] && [ -f "$DARWIN_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${DARWIN_MODULEMAP}")
+        else
+          echo "WARNING: DARWIN_MODULEMAP not set or missing (${DARWIN_MODULEMAP:-unset}); continuing without explicit module.modulemap."
+        fi
+        if [ -n "${C_STANDARD_LIBRARY_MODULEMAP:-}" ] && [ -f "$C_STANDARD_LIBRARY_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${C_STANDARD_LIBRARY_MODULEMAP}")
+        else
+          echo "WARNING: C_STANDARD_LIBRARY_MODULEMAP not set or missing (${C_STANDARD_LIBRARY_MODULEMAP:-unset}); continuing without explicit c_standard_library.modulemap."
+        fi
 
         swift test -c release \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
           -Xcc -isysroot -Xcc "${SDKROOT}" \
-          -Xcc -fmodule-map-file="${DARWIN_MODULEMAP}" \
-          -Xcc -fmodule-map-file="${C_STANDARD_LIBRARY_MODULEMAP}" \
+          "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
 
     - name: Build examples
@@ -346,28 +373,30 @@ jobs:
         export DARWIN_MODULEMAP
         export C_STANDARD_LIBRARY_MODULEMAP
 
-        for modulemap in "$DARWIN_MODULEMAP" "$C_STANDARD_LIBRARY_MODULEMAP"; do
-          if [ ! -f "$modulemap" ]; then
-            echo "ERROR: Required module map not found at $modulemap"
-            exit 1
-          fi
-        done
+        MODULEMAP_FLAGS=()
+        if [ -n "${DARWIN_MODULEMAP:-}" ] && [ -f "$DARWIN_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${DARWIN_MODULEMAP}")
+        else
+          echo "WARNING: DARWIN_MODULEMAP not set or missing (${DARWIN_MODULEMAP:-unset}); continuing without explicit module.modulemap."
+        fi
+        if [ -n "${C_STANDARD_LIBRARY_MODULEMAP:-}" ] && [ -f "$C_STANDARD_LIBRARY_MODULEMAP" ]; then
+          MODULEMAP_FLAGS+=(-Xcc "-fmodule-map-file=${C_STANDARD_LIBRARY_MODULEMAP}")
+        else
+          echo "WARNING: C_STANDARD_LIBRARY_MODULEMAP not set or missing (${C_STANDARD_LIBRARY_MODULEMAP:-unset}); continuing without explicit c_standard_library.modulemap."
+        fi
 
         swift build -c release --product MNISTExample \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
           -Xcc -isysroot -Xcc "${SDKROOT}" \
-          -Xcc -fmodule-map-file="${DARWIN_MODULEMAP}" \
-          -Xcc -fmodule-map-file="${C_STANDARD_LIBRARY_MODULEMAP}" \
+          "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
         swift build -c release --product ANKIExample \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
           -Xcc -isysroot -Xcc "${SDKROOT}" \
-          -Xcc -fmodule-map-file="${DARWIN_MODULEMAP}" \
-          -Xcc -fmodule-map-file="${C_STANDARD_LIBRARY_MODULEMAP}" \
+          "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
         swift build -c release --product KARATEExample \
           -Xswiftc -sdk -Xswiftc "${SDKROOT}" \
           -Xcc -isysroot -Xcc "${SDKROOT}" \
-          -Xcc -fmodule-map-file="${DARWIN_MODULEMAP}" \
-          -Xcc -fmodule-map-file="${C_STANDARD_LIBRARY_MODULEMAP}" \
+          "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"

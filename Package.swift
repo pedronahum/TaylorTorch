@@ -11,7 +11,9 @@ let pytorchInstallDir = ProcessInfo.processInfo.environment["PYTORCH_INSTALL_DIR
 
 // Derived paths
 let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
+let swiftClangIncludeDir = "\(swiftLibDir)/clang/include"
 let swiftIncludeDir = "\(swiftToolchainDir)/include"
+let swiftBridgingIncludeDir = "\(swiftIncludeDir)/swift"
 let pytorchIncludeDir = "\(pytorchInstallDir)/include"
 let pytorchApiIncludeDir = "\(pytorchInstallDir)/include/torch/csrc/api/include"
 let pytorchLibDir = "\(pytorchInstallDir)/lib"
@@ -20,6 +22,8 @@ let pytorchLibDir = "\(pytorchInstallDir)/lib"
 let commonSwiftSettings: [SwiftSetting] = [
     .interoperabilityMode(.Cxx),
     .unsafeFlags(["-Xcc", "-I\(swiftIncludeDir)"]),
+    .unsafeFlags(["-Xcc", "-I\(swiftBridgingIncludeDir)"]),
+    .unsafeFlags(["-Xcc", "-I\(swiftClangIncludeDir)"]),
     .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
     .unsafeFlags(["-Xcc", "-I\(pytorchIncludeDir)"]),
     .unsafeFlags(["-Xcc", "-I\(pytorchApiIncludeDir)"]),
@@ -51,6 +55,9 @@ let package = Package(
             path: "Sources/ATenCXX",
             publicHeadersPath: "include",
             cxxSettings: [
+                .unsafeFlags(["-I", swiftIncludeDir]),
+                .unsafeFlags(["-I", swiftBridgingIncludeDir]),
+                .unsafeFlags(["-I", swiftClangIncludeDir]),
                 .unsafeFlags(["-I", swiftLibDir]),
                 .unsafeFlags(["-I", pytorchIncludeDir]),
                 .unsafeFlags(["-I", pytorchApiIncludeDir]),
@@ -63,6 +70,8 @@ let package = Package(
             cxxSettings: [
                 .define("DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES"),
                 .unsafeFlags(["-I", swiftIncludeDir]),
+                .unsafeFlags(["-I", swiftBridgingIncludeDir]),
+                .unsafeFlags(["-I", swiftClangIncludeDir]),
                 .unsafeFlags(["-I", pytorchIncludeDir]),
                 .unsafeFlags(["-I", pytorchApiIncludeDir]),
                 .unsafeFlags(["-std=c++17"]),
