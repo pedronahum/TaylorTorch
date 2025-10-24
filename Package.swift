@@ -9,25 +9,78 @@ let swiftToolchainDir = ProcessInfo.processInfo.environment["SWIFT_TOOLCHAIN_DIR
 let pytorchInstallDir = ProcessInfo.processInfo.environment["PYTORCH_INSTALL_DIR"] ??
     "/Users/pedro/programming/pytorch/install"
 
+let sdkRoot = ProcessInfo.processInfo.environment["SDKROOT"]
+
+func firstExistingPath(_ candidates: [String?]) -> String? {
+    let fileManager = FileManager.default
+    for candidate in candidates {
+        if let path = candidate, fileManager.fileExists(atPath: path) {
+            return path
+        }
+    }
+    return nil
+}
+
 // Derived paths
 let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
 let swiftClangIncludeDir = "\(swiftLibDir)/clang/include"
 let swiftIncludeDir = "\(swiftToolchainDir)/include"
-let swiftBridgingIncludeDir = "\(swiftIncludeDir)/swift"
+let swiftBridgingIncludeDir: String? = {
+    let candidates: [String?] = [
+        ProcessInfo.processInfo.environment["SWIFT_BRIDGING_INCLUDE_DIR"],
+        swiftIncludeDir,
+        swiftClangIncludeDir,
+        "\(swiftLibDir)/swiftToCxx",
+        swiftLibDir,
+        sdkRoot.map { "\($0)/usr/include" }
+    ]
+    let fileManager = FileManager.default
+    for candidate in candidates {
+        guard let base = candidate else { continue }
+        let bridgingHeader = "\(base)/swift/bridging"
+        let bridgingHeaderWithExt = "\(base)/swift/bridging.h"
+        if fileManager.fileExists(atPath: bridgingHeader) || fileManager.fileExists(atPath: bridgingHeaderWithExt) {
+            return base
+        }
+    }
+    return nil
+}()
+let sdkIncludeDir = sdkRoot.map { "\($0)/usr/include" }
+let darwinModuleMap = firstExistingPath([
+    sdkRoot.map { "\($0)/usr/include/module.modulemap" },
+    "\(swiftClangIncludeDir)/module.modulemap",
+    "\(swiftIncludeDir)/module.modulemap"
+])
+let cStandardLibraryModuleMap = firstExistingPath([
+    sdkRoot.map { "\($0)/usr/include/c_standard_library.modulemap" },
+    "\(swiftClangIncludeDir)/c_standard_library.modulemap"
+])
 let pytorchIncludeDir = "\(pytorchInstallDir)/include"
 let pytorchApiIncludeDir = "\(pytorchInstallDir)/include/torch/csrc/api/include"
 let pytorchLibDir = "\(pytorchInstallDir)/lib"
 
 // Common compiler & linker settings
-let commonSwiftSettings: [SwiftSetting] = [
+var commonSwiftSettings: [SwiftSetting] = [
     .interoperabilityMode(.Cxx),
     .unsafeFlags(["-Xcc", "-I\(swiftIncludeDir)"]),
-    .unsafeFlags(["-Xcc", "-I\(swiftBridgingIncludeDir)"]),
     .unsafeFlags(["-Xcc", "-I\(swiftClangIncludeDir)"]),
     .unsafeFlags(["-Xcc", "-DSWIFT_INTEROP_ENABLED"]),
     .unsafeFlags(["-Xcc", "-I\(pytorchIncludeDir)"]),
     .unsafeFlags(["-Xcc", "-I\(pytorchApiIncludeDir)"]),
 ]
+if let swiftBridgingIncludeDir {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-I\(swiftBridgingIncludeDir)"]))
+}
+
+if let sdkIncludeDir {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-I\(sdkIncludeDir)"]))
+}
+if let darwinModuleMap {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-fmodule-map-file=\(darwinModuleMap)"]))
+}
+if let cStandardLibraryModuleMap {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
+}
 
 let commonLinkerSettings: [LinkerSetting] = [
     .unsafeFlags(["-L", pytorchLibDir]),
@@ -36,6 +89,47 @@ let commonLinkerSettings: [LinkerSetting] = [
     .linkedLibrary("torch"),
     .linkedLibrary("torch_cpu"),
 ]
+
+var atenCxxSettings: [CXXSetting] = [
+    .unsafeFlags(["-I", swiftIncludeDir]),
+    .unsafeFlags(["-I", swiftClangIncludeDir]),
+    .unsafeFlags(["-I", swiftLibDir]),
+    .unsafeFlags(["-I", pytorchIncludeDir]),
+    .unsafeFlags(["-I", pytorchApiIncludeDir]),
+]
+if let swiftBridgingIncludeDir {
+    atenCxxSettings.append(.unsafeFlags(["-I", swiftBridgingIncludeDir]))
+}
+if let sdkIncludeDir {
+    atenCxxSettings.append(.unsafeFlags(["-I", sdkIncludeDir]))
+}
+if let darwinModuleMap {
+    atenCxxSettings.append(.unsafeFlags(["-fmodule-map-file=\(darwinModuleMap)"]))
+}
+if let cStandardLibraryModuleMap {
+    atenCxxSettings.append(.unsafeFlags(["-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
+}
+
+var atenCxxDoctestSettings: [CXXSetting] = [
+    .define("DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES"),
+    .unsafeFlags(["-I", swiftIncludeDir]),
+    .unsafeFlags(["-I", swiftClangIncludeDir]),
+    .unsafeFlags(["-I", pytorchIncludeDir]),
+    .unsafeFlags(["-I", pytorchApiIncludeDir]),
+    .unsafeFlags(["-std=c++17"]),
+]
+if let swiftBridgingIncludeDir {
+    atenCxxDoctestSettings.append(.unsafeFlags(["-I", swiftBridgingIncludeDir]))
+}
+if let sdkIncludeDir {
+    atenCxxDoctestSettings.append(.unsafeFlags(["-I", sdkIncludeDir]))
+}
+if let darwinModuleMap {
+    atenCxxDoctestSettings.append(.unsafeFlags(["-fmodule-map-file=\(darwinModuleMap)"]))
+}
+if let cStandardLibraryModuleMap {
+    atenCxxDoctestSettings.append(.unsafeFlags(["-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
+}
 
 let package = Package(
     name: "TaylorTorch",
@@ -54,28 +148,13 @@ let package = Package(
             name: "ATenCXX",
             path: "Sources/ATenCXX",
             publicHeadersPath: "include",
-            cxxSettings: [
-                .unsafeFlags(["-I", swiftIncludeDir]),
-                .unsafeFlags(["-I", swiftBridgingIncludeDir]),
-                .unsafeFlags(["-I", swiftClangIncludeDir]),
-                .unsafeFlags(["-I", swiftLibDir]),
-                .unsafeFlags(["-I", pytorchIncludeDir]),
-                .unsafeFlags(["-I", pytorchApiIncludeDir]),
-            ]
+            cxxSettings: atenCxxSettings
         ),
         .executableTarget(
             name: "ATenCXXDoctests",
             dependencies: ["ATenCXX"],
             path: "Sources/ATenCXXDoctests",
-            cxxSettings: [
-                .define("DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES"),
-                .unsafeFlags(["-I", swiftIncludeDir]),
-                .unsafeFlags(["-I", swiftBridgingIncludeDir]),
-                .unsafeFlags(["-I", swiftClangIncludeDir]),
-                .unsafeFlags(["-I", pytorchIncludeDir]),
-                .unsafeFlags(["-I", pytorchApiIncludeDir]),
-                .unsafeFlags(["-std=c++17"]),
-            ],
+            cxxSettings: atenCxxDoctestSettings,
             linkerSettings: [
                 .unsafeFlags(["-L", pytorchLibDir]),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
