@@ -101,38 +101,61 @@ RUN git clone --recursive https://github.com/pytorch/pytorch.git && \
     git submodule sync && \
     git submodule update --init --recursive
 
-# Configure and build PyTorch with CMake using Swift's clang/clang++
-RUN cd pytorch && \
+# Verify and locate OpenMP installation
+RUN echo "Checking for OpenMP headers and libraries..." && \
+    if [ -f "/usr/lib/llvm-17/include/omp.h" ]; then \
+        echo "✓ Found omp.h at /usr/lib/llvm-17/include/omp.h"; \
+        OMP_INCLUDE_DIR="/usr/lib/llvm-17/include"; \
+    elif [ -f "/usr/include/omp.h" ]; then \
+        echo "✓ Found omp.h at /usr/include/omp.h"; \
+        OMP_INCLUDE_DIR="/usr/include"; \
+    else \
+        echo "✗ Searching for omp.h..."; \
+        find /usr -name "omp.h" 2>/dev/null || (echo "omp.h not found!" && exit 1); \
+    fi && \
+    if [ -f "/usr/lib/llvm-17/lib/libomp.so" ]; then \
+        echo "✓ Found libomp.so at /usr/lib/llvm-17/lib/libomp.so"; \
+        OMP_LIBRARY="/usr/lib/llvm-17/lib/libomp.so"; \
+    elif [ -f "/usr/lib/x86_64-linux-gnu/libomp.so" ]; then \
+        echo "✓ Found libomp.so at /usr/lib/x86_64-linux-gnu/libomp.so"; \
+        OMP_LIBRARY="/usr/lib/x86_64-linux-gnu/libomp.so"; \
+    else \
+        echo "✗ Searching for libomp.so..."; \
+        find /usr -name "libomp.so*" 2>/dev/null || (echo "libomp.so not found!" && exit 1); \
+    fi && \
+    echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
+    echo "Using OpenMP library: ${OMP_LIBRARY}" && \
+    cd pytorch && \
     mkdir -p build && \
     cd build && \
     CC=clang CXX=clang++ \
-    CFLAGS="-I/usr/lib/llvm-17/include" \
-    CXXFLAGS="-I/usr/lib/llvm-17/include" \
+    CFLAGS="-I${OMP_INCLUDE_DIR}" \
+    CXXFLAGS="-I${OMP_INCLUDE_DIR}" \
     cmake .. \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_C_FLAGS="-I/usr/lib/llvm-17/include" \
-    -DCMAKE_CXX_FLAGS="-I/usr/lib/llvm-17/include" \
-    -DOpenMP_C_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
-    -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I/usr/lib/llvm-17/include" \
-    -DOpenMP_C_LIB_NAMES="libomp" \
-    -DOpenMP_CXX_LIB_NAMES="libomp" \
-    -DOpenMP_libomp_LIBRARY="/usr/lib/llvm-17/lib/libomp.so" \
-    -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
-    -DBUILD_PYTHON=OFF \
-    -DBUILD_TEST=OFF \
-    -DBUILD_CAFFE2=OFF \
-    -DUSE_DISTRIBUTED=OFF \
-    -DUSE_MPS=OFF \
-    -DUSE_MKLDNN=OFF \
-    -DUSE_XNNPACK=OFF \
-    -DUSE_QNNPACK=OFF \
-    -DUSE_FBGEMM=OFF \  
-    -DUSE_CUDA=OFF \
-    -DPYTHON_EXECUTABLE=$(which python3) \
-    -GNinja && \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      -DCMAKE_C_FLAGS="-I${OMP_INCLUDE_DIR}" \
+      -DCMAKE_CXX_FLAGS="-I${OMP_INCLUDE_DIR}" \
+      -DOpenMP_C_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
+      -DOpenMP_CXX_FLAGS="-fopenmp=libomp -I${OMP_INCLUDE_DIR}" \
+      -DOpenMP_C_LIB_NAMES="libomp" \
+      -DOpenMP_CXX_LIB_NAMES="libomp" \
+      -DOpenMP_libomp_LIBRARY="${OMP_LIBRARY}" \
+      -DBUILD_SHARED_LIBS=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
+      -DBUILD_PYTHON=OFF \
+      -DBUILD_TEST=OFF \
+      -DBUILD_CAFFE2=OFF \
+      -DUSE_DISTRIBUTED=OFF \
+      -DUSE_MPS=OFF \
+      -DUSE_MKLDNN=OFF \
+      -DUSE_XNNPACK=OFF \
+      -DUSE_QNNPACK=OFF \
+      -DUSE_FBGEMM=OFF \
+      -DUSE_CUDA=OFF \
+      -DPYTHON_EXECUTABLE=$(which python3) \
+      -GNinja && \
     cmake --build . --target install -j$(nproc)
 
 # Set up library paths after PyTorch is built
