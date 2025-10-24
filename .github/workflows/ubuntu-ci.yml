@@ -110,6 +110,14 @@ jobs:
         sudo chmod -R o+r /usr/lib/swift
         swift --version
 
+    - name: Set up Swift environment variables
+      run: |
+        echo "SWIFT_TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=/usr/bin/swift" >> $GITHUB_ENV
+        echo "PYTORCH_INSTALL_DIR=/opt/pytorch" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
+        echo "CXX=clang++" >> $GITHUB_ENV
+
     - name: Cache PyTorch build
       id: cache-pytorch
       uses: actions/cache@v4
@@ -157,8 +165,9 @@ jobs:
           -DUSE_MKLDNN=OFF \
           -DUSE_XNNPACK=OFF \
           -DUSE_QNNPACK=OFF \
-          -DUSE_FBGEMM=OFF \  
-          -DPYTHON_EXECUTABLE=$(which python3)
+          -DUSE_FBGEMM=OFF \
+          -DPYTHON_EXECUTABLE=$(which python3) \
+          -GNinja
         cmake --build . --target install -j$(nproc)
 
     - name: Fix PyTorch permissions
@@ -167,11 +176,8 @@ jobs:
         sudo mkdir -p /opt/pytorch
         sudo cp -r /tmp/pytorch/build/install/* /opt/pytorch/ || true
 
-    - name: Set up environment
+    - name: Set up PyTorch library paths
       run: |
-        echo "PYTORCH_INSTALL_DIR=/opt/pytorch" >> $GITHUB_ENV
-        echo "SWIFT_TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
-        echo "SWIFTPM_SWIFT_EXEC=/usr/bin/swift" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
         echo "/opt/pytorch/lib" | sudo tee -a /etc/ld.so.conf.d/pytorch.conf
         sudo ldconfig

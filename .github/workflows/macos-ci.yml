@@ -74,6 +74,8 @@ jobs:
         sudo installer -pkg swift.pkg -target /
         rm swift.pkg
 
+    
+
     - name: Select Swift toolchain
       run: |
         # Search for the toolchain in both user and system locations
@@ -110,6 +112,19 @@ jobs:
         else
           # Fallback identifier
           TOOLCHAIN_IDENTIFIER="swift"
+        fi
+
+        # Set SDKROOT to point to macOS SDK (needed for C/C++ compilation)
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+        echo "SDKROOT=${SDKROOT}" >> $GITHUB_ENV
+        echo "SDK root: $SDKROOT"
+
+        # Verify the SDK has essential headers
+        if [ -f "${SDKROOT}/usr/include/tgmath.h" ]; then
+          echo "✓ Found tgmath.h at ${SDKROOT}/usr/include/tgmath.h"
+        else
+          echo "✗ WARNING: tgmath.h not found - SDK may be incomplete!"
+          echo "This may cause compilation errors with PyTorch or Swift C++ interop"
         fi
 
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV

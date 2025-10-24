@@ -76,16 +76,22 @@ RUN SWIFT_URL=https://download.swift.org/development/ubuntu2404/${SWIFT_BRANCH}/
     && rm ${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz \
     && chmod -R o+r /usr/lib/swift
 
-# Set up Swift environment
+# Set up all environment variables early (before building PyTorch)
 ENV PATH="/usr/bin:${PATH}"
 ENV CC=clang
 ENV CXX=clang++
+ENV SWIFT_TOOLCHAIN_DIR=/usr
+ENV SWIFT_LIB_DIR=/usr/lib/swift
+ENV SWIFT_INCLUDE_DIR=/usr/include
+ENV SWIFTPM_SWIFT_EXEC=/usr/bin/swift
+ENV PYTORCH_INSTALL_DIR=/opt/pytorch
+ENV PYTORCH_ROOT=/opt/pytorch
+ENV PYTORCH_VERSION=v2.8.0
 
 # Verify Swift installation
 RUN swift --version
 
 # Build PyTorch from source
-ENV PYTORCH_VERSION=v2.8.0
 WORKDIR /tmp/pytorch-build
 
 # Clone and checkout PyTorch
@@ -125,20 +131,13 @@ RUN cd pytorch && \
     -DUSE_QNNPACK=OFF \
     -DUSE_FBGEMM=OFF \  
     -DUSE_CUDA=OFF \
-    -DPYTHON_EXECUTABLE=$(which python3) && \
+    -DPYTHON_EXECUTABLE=$(which python3) \
+    -GNinja && \
     cmake --build . --target install -j$(nproc)
 
-# Set up PyTorch environment variables for Package.swift
-ENV PYTORCH_INSTALL_DIR=/opt/pytorch
-ENV PYTORCH_ROOT=/opt/pytorch
+# Set up library paths after PyTorch is built
 ENV LD_LIBRARY_PATH=${PYTORCH_ROOT}/lib:${LD_LIBRARY_PATH}
 ENV CMAKE_PREFIX_PATH=${PYTORCH_ROOT}:${CMAKE_PREFIX_PATH}
-
-# Set up Swift toolchain environment variables for Package.swift
-ENV SWIFT_TOOLCHAIN_DIR=/usr
-ENV SWIFT_LIB_DIR=/usr/lib/swift
-ENV SWIFT_INCLUDE_DIR=/usr/include
-ENV SWIFTPM_SWIFT_EXEC=/usr/bin/swift
 
 # Clean up build directory to save space
 RUN rm -rf /tmp/pytorch-build
