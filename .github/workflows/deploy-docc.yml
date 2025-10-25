@@ -26,47 +26,65 @@ jobs:
   build:
     runs-on: macos-15  # macOS 15 required for Swift 6.x
 
+    env:
+      SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a  # Same as macos-ci.yml
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Full history for better DocC generation
 
-    - name: Select Xcode with Swift 6.x
+    - name: Install Homebrew dependencies
       run: |
-        # List available Xcode versions
-        echo "Available Xcode versions:"
-        ls /Applications/ | grep Xcode || echo "No additional Xcode versions found"
+        brew update
+        brew install gnu-getopt
 
-        # macOS 15 runners should come with Xcode 16.x (Swift 6.x)
-        # Try to select the latest Xcode version available
-        if [ -d "/Applications/Xcode_16.1.app" ]; then
-          sudo xcode-select -switch /Applications/Xcode_16.1.app/Contents/Developer
-        elif [ -d "/Applications/Xcode_16.0.app" ]; then
-          sudo xcode-select -switch /Applications/Xcode_16.0.app/Contents/Developer
-        else
-          # Use default Xcode
-          sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
-        fi
+    - name: Cache Swiftly toolchains
+      id: cache-swiftly
+      uses: actions/cache@v4
+      with:
+        path: ~/.swiftly
+        key: swiftly-${{ runner.os }}-${{ env.SWIFT_VERSION }}
+
+    - name: Install Swift via Swiftly
+      run: |
+        # Add gnu-getopt to PATH (required by Swiftly)
+        export PATH="$(brew --prefix gnu-getopt)/bin:$PATH"
+
+        # Download and install Swiftly
+        curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
+        installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+
+        # Initialize Swiftly
+        ~/.swiftly/bin/swiftly init --quiet-shell-followup
+        . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+        hash -r
+
+        # Install the specific Swift version
+        swiftly install ${SWIFT_VERSION} --assume-yes --use
+        . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+        hash -r
+
+        # Clean up installer
+        rm swiftly.pkg
+
+        # Set up environment variables for Swift toolchain
+        SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)"
+        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
+        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
+        SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
+
+        # Add to PATH and environment
+        echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
+        echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_BIN}" >> $GITHUB_ENV
 
         # Verify Swift version
-        echo "Selected Xcode:"
-        xcodebuild -version
-        echo ""
-        echo "Swift version:"
+        echo "✅ Swift installed successfully:"
         swift --version
-
-        # Check if Swift 6.x is available
-        SWIFT_VERSION=$(swift --version | head -n1 | grep -oE 'Swift version [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+')
-        echo "Detected Swift version: $SWIFT_VERSION"
-
-        # Warn if not Swift 6.x but continue
-        if [[ ! "$SWIFT_VERSION" =~ ^6\. ]]; then
-          echo "⚠️ Warning: Swift 6.x not detected. Found Swift $SWIFT_VERSION"
-          echo "Documentation build may fail if package requires Swift 6.x"
-        else
-          echo "✅ Swift 6.x detected"
-        fi
 
     - name: Cache Swift dependencies
       uses: actions/cache@v3

@@ -53,6 +53,7 @@ jobs:
         sudo apt-get install -y \
           build-essential \
           cmake \
+          clang-18 \
           libgoogle-glog-dev \
           libgtest-dev \
           libomp-18-dev \
@@ -299,18 +300,35 @@ jobs:
           OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -I${OMP_INCLUDE_DIR}"
         fi
 
-        # Critical: Add clang resource dir first, then libc++
-        # This ensures C standard library wrappers are found before libc++ tries to use them
-        # Also add --no-system-header-prefix to prevent using system LLVM headers
-        CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR} --no-system-header-prefix=/usr/lib/llvm"
+        # Determine which compiler to use based on libc++ source
+        # If using Swift's libc++, use Swift's clang for compatibility
+        # If using system LLVM 18's libc++, use system clang-18 for full compatibility
+        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then
+          BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
+          BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
+          BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"
+          echo "✓ Using Swift's clang for PyTorch build"
+        else
+          # Prefer system clang-18 to match libc++ 18
+          if [ -f "/usr/lib/llvm-18/bin/clang" ] && [ -f "/usr/lib/llvm-18/bin/clang++" ]; then
+            BUILD_CC="/usr/lib/llvm-18/bin/clang"
+            BUILD_CXX="/usr/lib/llvm-18/bin/clang++"
+            BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-18/lib/clang/18/include"
+            echo "✓ Using system clang-18 for PyTorch build (matches libc++ 18)"
+          else
+            echo "⚠ System clang-18 not found, falling back to Swift's clang"
+            BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
+            BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
+            BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"
+          fi
+        fi
 
-        # Use Swift's clang explicitly
-        SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
-        SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
+        # Build the CXX flags with proper include ordering
+        CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${BUILD_RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR}"
 
-        CC="${SWIFT_CLANG}" CXX="${SWIFT_CLANGXX}" cmake .. \
-          -DCMAKE_C_COMPILER="${SWIFT_CLANG}" \
-          -DCMAKE_CXX_COMPILER="${SWIFT_CLANGXX}" \
+        CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
+          -DCMAKE_C_COMPILER="${BUILD_CC}" \
+          -DCMAKE_CXX_COMPILER="${BUILD_CXX}" \
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_EXTENSIONS=OFF \
           -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
