@@ -45,7 +45,8 @@ jobs:
           zlib1g-dev \
           wget \
           curl \
-          ca-certificates
+          ca-certificates \
+          util-linux
 
     - name: Install PyTorch build dependencies
       run: |
@@ -93,11 +94,15 @@ jobs:
 
     - name: Install Swift via Swiftly
       run: |
-        curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes
-        export PATH="$HOME/.swiftly/bin:$PATH"
+        curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
+        tar zxf swiftly-$(uname -m).tar.gz
+        ./swiftly init --quiet-shell-followup
+        . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+        hash -r
         swiftly install ${SWIFT_VERSION} --no-interactive
         swiftly use ${SWIFT_VERSION}
-        . "$HOME/.swiftly/env"
+        . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+        rm -rf swiftly swiftly-$(uname -m).tar.gz
         SWIFT_BIN="$(command -v swift)"
         SWIFT_BIN_DIR="$(dirname "$SWIFT_BIN")"
         SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"

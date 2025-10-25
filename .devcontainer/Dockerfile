@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     ca-certificates \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PyTorch build dependencies
@@ -70,29 +71,30 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     cmake
 
 # Install Swift via Swiftly
-RUN curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes \
+RUN curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz \
+    && tar zxf swiftly-$(uname -m).tar.gz \
+    && ./swiftly init --quiet-shell-followup \
+    && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
+    && hash -r \
     && export PATH="/root/.swiftly/bin:$PATH" \
     && swiftly install ${SWIFT_BRANCH:-${SWIFT_VERSION}} --no-interactive \
     && swiftly use ${SWIFT_BRANCH:-${SWIFT_VERSION}} \
-    && . "/root/.swiftly/env" \
-    && swift --version
+    && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
+    && swift --version \
+    && rm -rf swiftly swiftly-$(uname -m).tar.gz
 
 # Configure Swift environment
-ENV SWIFTLY_HOME=/root/.swiftly
-ENV PATH="${SWIFTLY_HOME}/bin:${SWIFTLY_HOME}/toolchains/current/usr/bin:${PATH}"
+ENV SWIFTLY_HOME=/root/.local/share/swiftly
+ENV SWIFTLY_BIN=/root/.swiftly/bin
+ENV PATH="${SWIFTLY_BIN}:${SWIFTLY_HOME}/toolchains/current/usr/bin:/usr/bin:${PATH}"
 ENV SWIFT_TOOLCHAIN_PATH=${SWIFTLY_HOME}/toolchains/current
 ENV SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}
 ENV SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr
+ENV SWIFT_LIB_DIR=${SWIFT_TOOLCHAIN_DIR}/lib/swift
+ENV SWIFT_INCLUDE_DIR=${SWIFT_TOOLCHAIN_DIR}/include
 ENV SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_DIR}/bin/swift
-
-# Set up all environment variables early (before building PyTorch)
-ENV PATH="/usr/bin:${PATH}"
 ENV CC=clang
 ENV CXX=clang++
-ENV SWIFT_TOOLCHAIN_DIR=/usr
-ENV SWIFT_LIB_DIR=/usr/lib/swift
-ENV SWIFT_INCLUDE_DIR=/usr/include
-ENV SWIFTPM_SWIFT_EXEC=/usr/bin/swift
 ENV PYTORCH_INSTALL_DIR=/opt/pytorch
 ENV PYTORCH_ROOT=/opt/pytorch
 ENV PYTORCH_VERSION=v2.8.0
@@ -252,13 +254,12 @@ USER vscode
 
 # Set up shell for the user with all necessary environment variables
 RUN cat <<'EOF' >> ~/.bashrc
+if [ -f "${SWIFTLY_HOME}/env.sh" ]; then
+  . "${SWIFTLY_HOME}/env.sh"
+fi
 export CC=clang
 export CXX=clang++
 export PYTORCH_INSTALL_DIR=/opt/pytorch
-export SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}
-export SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}
-export SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN}
-export SWIFTPM_SWIFT_EXEC=${SWIFTPM_SWIFT_EXEC}
 export LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH
 EOF
 

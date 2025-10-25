@@ -47,7 +47,8 @@ jobs:
           libomp \
           openblas \
           protobuf \
-          wget
+          wget \
+          gnu-getopt
 
     - name: Install Python packages for PyTorch
       run: |
@@ -68,11 +69,16 @@ jobs:
 
     - name: Install Swift via Swiftly
       run: |
-        curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes
-        export PATH="$HOME/.swiftly/bin:$PATH"
+        export PATH="$(brew --prefix gnu-getopt)/bin:$PATH"
+        curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
+        installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+        ~/.swiftly/bin/swiftly init --quiet-shell-followup
+        . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+        hash -r
         swiftly install ${SWIFT_VERSION} --no-interactive
         swiftly use ${SWIFT_VERSION}
-        . "$HOME/.swiftly/env"
+        . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+        rm swiftly.pkg
         SWIFT_BIN="$(command -v swift)"
         SWIFT_BIN_DIR="$(dirname "$SWIFT_BIN")"
         SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
