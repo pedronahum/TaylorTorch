@@ -255,7 +255,6 @@ jobs:
 
         export USE_LIBCXX=1
         export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"
-        export C_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${LIBCXX_INCLUDE_DIR}"
         export CXXFLAGS="-nostdinc++ -stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}"
         export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}"
         if [ -n "$LIBRARY_PATH" ]; then
