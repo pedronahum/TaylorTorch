@@ -99,14 +99,15 @@ jobs:
         ./swiftly init --quiet-shell-followup
         . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
         hash -r
-        swiftly install ${SWIFT_VERSION} --assume-yes
-        swiftly use ${SWIFT_VERSION}
+        swiftly install ${SWIFT_VERSION} --assume-yes --use
         . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+        hash -r
         rm -rf swiftly swiftly-$(uname -m).tar.gz
-        SWIFT_TOOLCHAIN_PATH="$(swiftly path ${SWIFT_VERSION})"
-        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
-        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
-        SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
+        SWIFT_BIN="$(command -v swift)"
+        SWIFT_REAL_BIN="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$SWIFT_BIN")"
+        SWIFT_BIN_DIR="$(dirname "$SWIFT_REAL_BIN")"
+        SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
+        SWIFT_TOOLCHAIN_PATH="$(dirname "$SWIFT_TOOLCHAIN_DIR")"
         echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
         echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV

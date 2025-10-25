@@ -75,14 +75,15 @@ jobs:
         ~/.swiftly/bin/swiftly init --quiet-shell-followup
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
-        swiftly install ${SWIFT_VERSION} --assume-yes
-        swiftly use ${SWIFT_VERSION}
+        swiftly install ${SWIFT_VERSION} --assume-yes --use
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+        hash -r
         rm swiftly.pkg
-        SWIFT_TOOLCHAIN_PATH="$(swiftly path ${SWIFT_VERSION})"
-        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
-        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
-        SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
+        SWIFT_BIN="$(command -v swift)"
+        SWIFT_REAL_BIN="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$SWIFT_BIN")"
+        SWIFT_BIN_DIR="$(dirname "$SWIFT_REAL_BIN")"
+        SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
+        SWIFT_TOOLCHAIN_PATH="$(dirname "$SWIFT_TOOLCHAIN_DIR")"
         echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
         echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
@@ -94,11 +95,6 @@ jobs:
     - name: Select Swift toolchain
       run: |
         SWIFT_TOOLCHAIN_PATH="${SWIFT_TOOLCHAIN_PATH:-}"
-        if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
-          if command -v swiftly >/dev/null 2>&1; then
-            SWIFT_TOOLCHAIN_PATH="$(swiftly path ${SWIFT_VERSION})"
-          fi
-        fi
         if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
           echo "Error: Swift toolchain path not resolved"
           exit 1
