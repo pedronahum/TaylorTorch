@@ -120,18 +120,17 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
     RESOURCE_OMP="${CLANG_RESOURCE_DIR}/include/omp.h" && \
-    if [ -f "${RESOURCE_OMP}" ]; then \
-        OMP_INCLUDE_DIR="$(dirname "${RESOURCE_OMP}")"; \
-        echo "✓ Found omp.h at ${RESOURCE_OMP}"; \
-    else \
-        for candidate in "${CLANG_RESOURCE_DIR}/../include" "/usr/lib/llvm-18/include" "/usr/lib/llvm-17/include" "/usr/include"; do \
-            if [ -f "${candidate}/omp.h" ]; then \
-                OMP_INCLUDE_DIR="${candidate}"; \
-                echo "✓ Found omp.h at ${candidate}/omp.h"; \
-                break; \
-            fi; \
-        done; \
-    fi && \
+    for candidate in "${RESOURCE_OMP}" \
+                     "/usr/lib/llvm-18/lib/clang/18/include/omp.h" \
+                     "/usr/lib/llvm-18/include/omp.h" \
+                     "/usr/include/omp.h" \
+                     "/usr/lib/x86_64-linux-gnu/openmp/include/omp.h"; do \
+        if [ -f "${candidate}" ]; then \
+            OMP_INCLUDE_DIR="$(dirname "${candidate}")"; \
+            echo "✓ Found omp.h at ${candidate}"; \
+            break; \
+        fi; \
+    done && \
     if [ -z "${OMP_INCLUDE_DIR}" ]; then \
         echo "✗ omp.h not found - searching..."; \
         find /usr -name "omp.h" 2>/dev/null | grep -v android || (echo "omp.h not found!" && exit 1); \
@@ -181,6 +180,16 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
     echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
     export USE_LIBCXX=1 && \
+    if [ -n "$CPLUS_INCLUDE_PATH" ]; then \
+      export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${CPLUS_INCLUDE_PATH}"; \
+    else \
+      export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"; \
+    fi && \
+    if [ -n "$C_INCLUDE_PATH" ]; then \
+      export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${C_INCLUDE_PATH}"; \
+    else \
+      export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"; \
+    fi && \
     if [ -n "$CXXFLAGS" ]; then \
       export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} $CXXFLAGS"; \
     else \

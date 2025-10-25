@@ -244,6 +244,16 @@ jobs:
         echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}"
 
         export USE_LIBCXX=1
+        if [ -n "$CPLUS_INCLUDE_PATH" ]; then
+          export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${CPLUS_INCLUDE_PATH}"
+        else
+          export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"
+        fi
+        if [ -n "$C_INCLUDE_PATH" ]; then
+          export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${C_INCLUDE_PATH}"
+        else
+          export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"
+        fi
         if [ -n "$CXXFLAGS" ]; then
           export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} $CXXFLAGS"
         else
