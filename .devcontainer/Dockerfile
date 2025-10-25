@@ -154,9 +154,18 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
     LIBCXX_INCLUDE_DIR="" && \
-    for candidate in "${LLVM_BASE_DIR}/include/c++/v1" "/usr/include/c++/v1" "/usr/lib/llvm-18/include/c++/v1" "/usr/lib/swift/clang/include/c++/v1"; do \
-        if [ -f "${candidate}/cstddef" ]; then \
-            LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
+    for candidate in "${LLVM_BASE_DIR}/lib/swift/clang/include" \
+                     "${LLVM_BASE_DIR}/include" \
+                     "${LLVM_BASE_DIR}/include/c++/v1" \
+                     "/usr/include/c++/v1" \
+                     "/usr/lib/llvm-18/include/c++/v1" \
+                     "/usr/lib/swift/clang/include/c++/v1"; do \
+        if [ -f "${candidate}/cstddef" ] || [ -f "${candidate}/c++/v1/cstddef" ]; then \
+            if [ -f "${candidate}/cstddef" ]; then \
+                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
+            else \
+                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}/c++/v1")"; \
+            fi; \
             break; \
         fi; \
     done && \
@@ -180,26 +189,10 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
     echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
     export USE_LIBCXX=1 && \
-    if [ -n "$CPLUS_INCLUDE_PATH" ]; then \
-      export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${CPLUS_INCLUDE_PATH}"; \
-    else \
-      export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"; \
-    fi && \
-    if [ -n "$C_INCLUDE_PATH" ]; then \
-      export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${C_INCLUDE_PATH}"; \
-    else \
-      export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}"; \
-    fi && \
-    if [ -n "$CXXFLAGS" ]; then \
-      export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} $CXXFLAGS"; \
-    else \
-      export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}"; \
-    fi && \
-    if [ -n "$LDFLAGS" ]; then \
-      export LDFLAGS="-L${LIBCXX_LIBRARY_DIR} $LDFLAGS"; \
-    else \
-      export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}"; \
-    fi && \
+    export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${CPLUS_INCLUDE_PATH:-}" && \
+    export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${C_INCLUDE_PATH:-}" && \
+    export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} ${CXXFLAGS:-}" && \
+    export LDFLAGS="-L${LIBCXX_LIBRARY_DIR} ${LDFLAGS:-}" && \
     if [ -n "$LIBRARY_PATH" ]; then \
       export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
     else \
