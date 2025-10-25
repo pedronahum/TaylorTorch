@@ -283,8 +283,11 @@ jobs:
         echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}"
 
         export USE_LIBCXX=1
-        export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"
-        export CXXFLAGS="-nostdinc++ -stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}"
+        # Only add Swift paths to include path if we're using Swift's clang
+        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then
+          export CPLUS_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"
+        fi
+        export CXXFLAGS="-stdlib=libc++"
         export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}"
         if [ -n "$LIBRARY_PATH" ]; then
           export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"
@@ -323,8 +326,25 @@ jobs:
           fi
         fi
 
-        # Build the CXX flags with proper include ordering
-        CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${BUILD_RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR}"
+        # Build the CXX flags - use stdlib flag and library path, let compiler find headers
+        CMAKE_CXX_FLAGS="-stdlib=libc++"
+        
+        # Set CMAKE_PREFIX_PATH based on compiler choice
+        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then
+          CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"
+        else
+          # Using system clang-18, so use system LLVM path
+          CMAKE_PREFIX_PATH="/usr/lib/llvm-18;/usr"
+        fi
+        
+        echo "=== Build Configuration ==="
+        echo "Compiler: ${BUILD_CC}"
+        echo "C++ Compiler: ${BUILD_CXX}"
+        echo "libc++ Source: ${LIBCXX_SOURCE}"
+        echo "libc++ Include: ${LIBCXX_INCLUDE_DIR}"
+        echo "libc++ Library: ${LIBCXX_LIBRARY_DIR}"
+        echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
+        echo "==========================="
 
         CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
           -DCMAKE_C_COMPILER="${BUILD_CC}" \
@@ -332,9 +352,9 @@ jobs:
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_CXX_EXTENSIONS=OFF \
           -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
-          -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
-          -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
+          -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+          -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
           -DUSE_LIBCXX=ON \
           -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
           -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \

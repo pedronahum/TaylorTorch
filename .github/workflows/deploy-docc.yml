@@ -52,38 +52,55 @@ jobs:
         # Add gnu-getopt to PATH (required by Swiftly)
         export PATH="$(brew --prefix gnu-getopt)/bin:$PATH"
 
-        # Download and install Swiftly
-        curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
-        installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+        # Check if Swiftly is already installed
+        if [ -f "$HOME/.swiftly/bin/swiftly" ]; then
+          echo "✅ Swiftly already installed"
+          . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+          hash -r
+        else
+          echo "📦 Installing Swiftly..."
+          # Download and install Swiftly
+          curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
 
-        # Initialize Swiftly
-        ~/.swiftly/bin/swiftly init --quiet-shell-followup
+          # Initialize Swiftly
+          ~/.swiftly/bin/swiftly init --quiet-shell-followup
+          . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
+          hash -r
+
+          # Clean up installer
+          rm swiftly.pkg
+        fi
+
+        # Check if the required Swift version is already installed
+        TOOLCHAIN_PATH="$HOME/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain"
+        if [ -d "$TOOLCHAIN_PATH" ]; then
+          echo "✅ Swift ${SWIFT_VERSION} already installed at $TOOLCHAIN_PATH"
+          # Use the existing toolchain
+          swiftly use ${SWIFT_VERSION} || true
+        else
+          echo "📦 Installing Swift ${SWIFT_VERSION}..."
+          # Install the specific Swift version
+          swiftly install ${SWIFT_VERSION} --assume-yes --use
+        fi
+
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
-
-        # Install the specific Swift version
-        swiftly install ${SWIFT_VERSION} --assume-yes --use
-        . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
-        hash -r
-
-        # Clean up installer
-        rm swiftly.pkg
 
         # Set up environment variables for Swift toolchain
-        SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)"
-        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
-        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
+        SWIFT_TOOLCHAIN_PATH="${TOOLCHAIN_PATH}/usr"
+        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_PATH}/bin"
         SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
 
         # Add to PATH and environment
         echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
         echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
-        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
-        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFTPM_SWIFT_EXEC=${SWIFT_BIN}" >> $GITHUB_ENV
 
         # Verify Swift version
-        echo "✅ Swift installed successfully:"
+        echo "✅ Swift is ready:"
         swift --version
 
     - name: Cache Swift dependencies
