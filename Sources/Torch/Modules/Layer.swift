@@ -51,13 +51,142 @@ extension Module {
   }
 }
 
-/// A neural network layer.
+/// A neural network layer that transforms inputs to outputs with learnable parameters.
 ///
-/// Types that conform to `Layer` represent functions that map inputs to outputs. They may have an
-/// internal state represented by parameters, such as weight tensors.
+/// The `Layer` protocol is the foundation of all neural network components in TaylorTorch.
+/// Types conforming to `Layer` represent differentiable transformations that can be composed
+/// to build complex architectures.
 ///
-/// `Layer` instances define a differentiable `callAsFunction(_:)` method for mapping inputs to
-/// outputs.
+/// ## Overview
+///
+/// Layers combine three key capabilities:
+/// - **Transformation**: Map inputs to outputs through a forward pass
+/// - **Differentiation**: Compute gradients automatically via Swift's `@differentiable` attribute
+/// - **State Management**: Store learnable parameters like weights and biases
+///
+/// ## Creating Custom Layers
+///
+/// To create a custom layer, conform to `Layer` and implement the ``callAsFunction(_:)`` method:
+///
+/// ```swift
+/// struct MyLinearLayer: Layer {
+///     // Learnable parameters
+///     var weight: Tensor
+///     var bias: Tensor
+///
+///     init(inputSize: Int, outputSize: Int) {
+///         // Initialize with random weights
+///         self.weight = Tensor.randn([inputSize, outputSize]) * 0.01
+///         self.bias = Tensor.zeros([outputSize])
+///     }
+///
+///     // Forward pass - must be marked @differentiable
+///     @differentiable
+///     func callAsFunction(_ input: Tensor) -> Tensor {
+///         return input.matmul(weight) + bias
+///     }
+/// }
+/// ```
+///
+/// ## Using Layers
+///
+/// Layers can be called like functions thanks to `callAsFunction`:
+///
+/// ```swift
+/// let layer = Linear(inputSize: 784, outputSize: 128)
+/// let input = Tensor.randn([32, 784])
+///
+/// // Both syntaxes work:
+/// let output1 = layer(input)
+/// let output2 = layer.forward(input)
+/// ```
+///
+/// ## Composing Layers
+///
+/// Build complex models by composing simple layers:
+///
+/// ```swift
+/// let model = Sequential {
+///     Linear(inputSize: 784, outputSize: 256)
+///     ReLU()
+///     Dropout(probability: 0.2)
+///     Linear(inputSize: 256, outputSize: 10)
+/// }
+/// ```
+///
+/// ## Automatic Differentiation
+///
+/// The `@differentiable` attribute enables automatic gradient computation:
+///
+/// ```swift
+/// let model = Linear(inputSize: 10, outputSize: 5)
+/// let input = Tensor.randn([1, 10])
+///
+/// // Compute gradients using Swift's autodiff
+/// let (output, pullback) = valueWithPullback(at: model, input) { m, x in
+///     m(x)
+/// }
+/// let gradOutput = Tensor.ones(output.shape)
+/// let (modelGrad, inputGrad) = pullback(gradOutput)
+/// ```
+///
+/// ## Training vs Inference
+///
+/// Some layers behave differently during training and inference (e.g., ``Dropout``, ``BatchNorm``).
+/// Use ``inferring(from:)`` to explicitly run in inference mode:
+///
+/// ```swift
+/// // Training mode (dropout active)
+/// let trainOutput = model(input)
+///
+/// // Inference mode (dropout disabled)
+/// let testOutput = model.inferring(from: input)
+/// ```
+///
+/// ## Implementing Differentiable Conformance
+///
+/// For custom layers, Swift's automatic differentiation handles gradients if:
+/// 1. All stored properties are differentiable (usually ``Tensor`` values)
+/// 2. The forward pass is marked `@differentiable`
+/// 3. Operations use differentiable tensor methods
+///
+/// ```swift
+/// struct CustomActivation: Layer {
+///     // No learnable parameters - use ParameterlessLayer
+///     typealias TangentVector = EmptyTangentVector
+///
+///     @differentiable
+///     func callAsFunction(_ input: Tensor) -> Tensor {
+///         // Custom activation: x * sigmoid(x)
+///         return input * sigmoid(input)
+///     }
+/// }
+/// ```
+///
+/// ## Topics
+///
+/// ### Implementing a Layer
+///
+/// - ``callAsFunction(_:)``
+/// - ``forward(_:)``
+///
+/// ### Training and Inference
+///
+/// - ``inferring(from:)``
+/// - ``appliedForBackpropagation(to:)``
+///
+/// ### Parameterless Layers
+///
+/// - ``ParameterlessLayer``
+/// - ``EmptyTangentVector``
+///
+/// ## See Also
+///
+/// - ``Module``
+/// - ``Sequential``
+/// - ``Linear``
+/// - ``Conv2D``
+/// - ``Tensor``
 public protocol Layer: Module where Input: Differentiable {
   /// Returns the output obtained from applying the layer to the given input.
   ///

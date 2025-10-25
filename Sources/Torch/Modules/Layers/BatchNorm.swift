@@ -1,28 +1,344 @@
 import Foundation
 import _Differentiation
 
-/// Batch Normalization over channel dimension (NCHW...).
+/// Batch normalization for stabilizing and accelerating CNN training.
 ///
-/// Shapes:
-///   - Rank-2 (MLP): x [N, C]
-///   - Rank-4 (Conv): x [N, C, H, W]
+/// `BatchNorm` normalizes activations across the batch dimension for each channel independently.
+/// It's the standard normalization technique for Convolutional Neural Networks, providing stable
+/// training and acting as a regularizer.
 ///
-/// Training:
-///   y = (x - μ_B) / sqrt(σ_B^2 + ε) * γ + β
-/// Inference:
-///   y = (x - runningMean) / sqrt(runningVar + ε) * γ + β
+/// ## Overview
+///
+/// Batch normalization computes statistics (mean and variance) across the batch for each channel,
+/// then normalizes and applies a learned affine transformation. Key characteristics:
+/// - Normalizes across the batch dimension (N) for each channel (C)
+/// - Maintains running statistics for inference
+/// - Different behavior during training vs inference
+/// - Acts as a regularizer (reduces need for dropout)
+/// - Allows higher learning rates
+///
+/// ## Operation
+///
+/// ### Training
+/// For each channel, compute batch statistics then normalize:
+/// ```
+/// μ_batch = E[x] over batch
+/// σ²_batch = Var[x] over batch
+/// normalized = (x - μ_batch) / sqrt(σ²_batch + ε)
+/// output = γ * normalized + β
+///
+/// // Update running statistics
+/// running_mean = (1 - momentum) * running_mean + momentum * μ_batch
+/// running_var = (1 - momentum) * running_var + momentum * σ²_batch
+/// ```
+///
+/// ### Inference
+/// Use accumulated running statistics:
+/// ```
+/// normalized = (x - running_mean) / sqrt(running_var + ε)
+/// output = γ * normalized + β
+/// ```
+///
+/// Where `γ` (scale) and `β` (shift) are learned parameters per channel.
+///
+/// ## Creating BatchNorm Layers
+///
+/// ```swift
+/// // For CNNs (after Conv2D)
+/// let bn = BatchNorm(channels: 64)
+///
+/// // For MLPs (after Linear/Dense)
+/// let bn = BatchNorm(channels: 256)
+///
+/// // Custom momentum (default 0.1)
+/// let bn = BatchNorm(channels: 128, momentum: 0.01)
+///
+/// // Without learnable affine parameters
+/// let bn = BatchNorm(channels: 64, affine: false)
+/// ```
+///
+/// ## Usage in CNNs
+///
+/// ```swift
+/// // Standard ResNet-style block
+/// let cnn = Sequential {
+///     Conv2D(inChannels: 64, outChannels: 128, kernelSize: (3, 3), padding: (1, 1))
+///     BatchNorm(channels: 128)
+///     ReLU()
+///     Conv2D(inChannels: 128, outChannels: 128, kernelSize: (3, 3), padding: (1, 1))
+///     BatchNorm(channels: 128)
+/// }
+///
+/// // VGG-style block
+/// let vggBlock = Sequential {
+///     Conv2D(inChannels: 128, outChannels: 256, kernelSize: (3, 3), padding: (1, 1))
+///     BatchNorm(channels: 256)
+///     ReLU()
+///     Conv2D(inChannels: 256, outChannels: 256, kernelSize: (3, 3), padding: (1, 1))
+///     BatchNorm(channels: 256)
+///     ReLU()
+///     MaxPool2D(kernelSize: (2, 2))
+/// }
+/// ```
+///
+/// ## Shape Specifications
+///
+/// BatchNorm works with tensors of rank ≥ 2, normalizing across all dimensions except channel (dim 1):
+///
+/// ### For MLPs (Rank-2)
+/// - **Input**: `[batch, channels]`
+/// - **Normalizes over**: batch dimension
+/// - **Parameters**: `[channels]` for both γ and β
+///
+/// ### For CNNs (Rank-4)
+/// - **Input**: `[batch, channels, height, width]`
+/// - **Normalizes over**: batch, height, width (keeps channels separate)
+/// - **Parameters**: `[channels]` for both γ and β
+/// - **Output**: Same shape as input
+///
+/// ```swift
+/// let bn = BatchNorm(channels: 64)
+///
+/// // MLP usage
+/// let mlp = Tensor.randn([32, 64])  // [batch, features]
+/// let normed = bn(mlp)  // [32, 64]
+///
+/// // CNN usage
+/// let features = Tensor.randn([32, 64, 28, 28])  // [batch, channels, h, w]
+/// let normedCNN = bn(features)  // [32, 64, 28, 28]
+/// ```
+///
+/// ## Training vs Inference
+///
+/// BatchNorm behaves differently depending on the learning phase:
+///
+/// ```swift
+/// let bn = BatchNorm(channels: 64)
+/// let input = Tensor.randn([32, 64, 28, 28])
+///
+/// // Training mode - uses batch statistics
+/// Context.local.learningPhase = .training
+/// let trainOutput = bn(input)
+/// // Computes mean/var from current batch
+/// // Updates running statistics
+///
+/// // Inference mode - uses running statistics
+/// Context.local.learningPhase = .inference
+/// let testOutput = bn(input)
+/// // Uses accumulated running_mean and running_var
+/// // More stable, batch-size independent
+/// ```
+///
+/// ## BatchNorm vs LayerNorm
+///
+/// **Use BatchNorm when:**
+/// - Building CNNs for computer vision
+/// - Training with consistent, large batch sizes (≥16)
+/// - Want spatial regularization effects
+/// - Following established CNN architectures (ResNet, VGG, EfficientNet)
+///
+/// **Use LayerNorm when:**
+/// - Building transformers or attention-based models
+/// - Working with RNNs or sequence models
+/// - Batch size is small or varies
+/// - Need identical training and inference behavior
+///
+/// ### Key Differences
+///
+/// | Aspect | BatchNorm | LayerNorm |
+/// |--------|-----------|-----------|
+/// | Normalizes across | Batch (per channel) | Features (per sample) |
+/// | Running statistics | Yes | No |
+/// | Training vs Inference | Different | Identical |
+/// | Batch size dependency | High | None |
+/// | Common use | CNNs | Transformers, RNNs |
+/// | Spatial regularization | Yes | No |
+///
+/// ## Placement in Networks
+///
+/// ### Modern Practice (Post-Activation)
+///
+/// ```swift
+/// Conv2D → BatchNorm → ReLU
+/// ```
+///
+/// ### Original ResNet (Pre-Activation)
+///
+/// ```swift
+/// BatchNorm → ReLU → Conv2D
+/// ```
+///
+/// Both work, but post-activation (Conv → BN → ReLU) is more common in modern architectures.
+///
+/// ## Momentum Parameter
+///
+/// Controls the exponential moving average of running statistics:
+///
+/// ```swift
+/// // Fast adaptation (higher momentum)
+/// let bn = BatchNorm(channels: 64, momentum: 0.1)  // Default, PyTorch-style
+///
+/// // Slower adaptation (more stable)
+/// let bn = BatchNorm(channels: 64, momentum: 0.01)
+///
+/// // running_mean = (1 - momentum) * running_mean + momentum * batch_mean
+/// ```
+///
+/// Higher momentum = faster adaptation to new statistics.
+///
+/// ## Benefits of BatchNorm
+///
+/// 1. **Faster Training**: Allows higher learning rates
+/// 2. **Better Convergence**: More stable gradient flow
+/// 3. **Regularization**: Acts as regularizer, reduces overfitting
+/// 4. **Less Sensitive to Initialization**: More forgiving of poor weight init
+/// 5. **Reduces Internal Covariate Shift**: Stabilizes distribution of activations
+///
+/// ## Common Patterns
+///
+/// ### ResNet Bottleneck Block
+///
+/// ```swift
+/// struct BottleneckBlock: Layer {
+///     var conv1: Conv2D
+///     var bn1: BatchNorm
+///     var conv2: Conv2D
+///     var bn2: BatchNorm
+///     var conv3: Conv2D
+///     var bn3: BatchNorm
+///
+///     init(channels: Int) {
+///         conv1 = Conv2D(
+///             kaimingUniformInChannels: channels,
+///             outChannels: channels / 4,
+///             kernelSize: (1, 1)
+///         )
+///         bn1 = BatchNorm(channels: channels / 4)
+///
+///         conv2 = Conv2D(
+///             kaimingUniformInChannels: channels / 4,
+///             outChannels: channels / 4,
+///             kernelSize: (3, 3),
+///             padding: (1, 1)
+///         )
+///         bn2 = BatchNorm(channels: channels / 4)
+///
+///         conv3 = Conv2D(
+///             kaimingUniformInChannels: channels / 4,
+///             outChannels: channels,
+///             kernelSize: (1, 1)
+///         )
+///         bn3 = BatchNorm(channels: channels)
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ input: Tensor) -> Tensor {
+///         let residual = input
+///         var x = conv1(input)
+///         x = bn1(x).relu()
+///         x = conv2(x)
+///         x = bn2(x).relu()
+///         x = conv3(x)
+///         x = bn3(x)
+///         return (x + residual).relu()
+///     }
+/// }
+/// ```
+///
+/// ## Considerations
+///
+/// ### Batch Size
+/// - **Small batches (<16)**: Statistics are noisy, consider LayerNorm or GroupNorm
+/// - **Large batches (≥32)**: BatchNorm works best
+///
+/// ### Inference
+/// - Ensure you've trained long enough for running statistics to stabilize
+/// - Running statistics are updated during training only
+///
+/// ### Distributed Training
+/// - Consider synchronized BatchNorm across devices for consistent statistics
+///
+/// ## Automatic Differentiation
+///
+/// BatchNorm is fully differentiable with efficient gradient computation:
+///
+/// ```swift
+/// let bn = BatchNorm(channels: 64)
+/// let input = Tensor.randn([32, 64, 28, 28])
+///
+/// Context.local.learningPhase = .training
+/// let (output, pullback) = valueWithPullback(at: bn, input) { layer, x in
+///     layer(x)
+/// }
+///
+/// let gradOutput = Tensor.ones([32, 64, 28, 28])
+/// let (bnGrad, inputGrad) = pullback(gradOutput)
+/// // bnGrad.gamma: gradients for scale parameters
+/// // bnGrad.beta: gradients for shift parameters
+/// // inputGrad: gradients w.r.t. input
+/// ```
+///
+/// ## Topics
+///
+/// ### Creating BatchNorm Layers
+///
+/// - ``init(channels:momentum:epsilon:affine:dtype:device:)``
+/// - ``init(featureCount:momentum:epsilon:affine:dtype:device:)``
+///
+/// ### Properties
+///
+/// - ``gamma``
+/// - ``beta``
+/// - ``runningMean``
+/// - ``runningVariance``
+/// - ``momentum``
+/// - ``epsilon``
+/// - ``affine``
+///
+/// ### Forward Pass
+///
+/// - ``callAsFunction(_:)``
+///
+/// ## See Also
+///
+/// - ``LayerNorm`` - Layer normalization for transformers
+/// - ``GroupNorm`` - Group normalization (batch-independent)
+/// - ``Conv2D`` - Convolutional layers (commonly used with BatchNorm)
+/// - ``Sequential`` - Compose layers including BatchNorm
 public struct BatchNorm: Layer {
-  // Trainable affine parameters
-  public var gamma: Tensor  // [C]
-  public var beta: Tensor  // [C]
+  /// The learnable scale (gain) parameter per channel.
+  ///
+  /// Shape: `[channels]`. Initialized to ones. Multiplies normalized values.
+  public var gamma: Tensor
 
-  // Running statistics (updated in training; read in inference)
-  @noDerivative public var runningMean: Parameter  // [C]
-  @noDerivative public var runningVariance: Parameter  // [C]
+  /// The learnable shift (bias) parameter per channel.
+  ///
+  /// Shape: `[channels]`. Initialized to zeros. Added after scaling.
+  public var beta: Tensor
 
-  // Hyper-parameters
+  /// Running mean statistics accumulated during training, used during inference.
+  ///
+  /// Shape: `[channels]`. Updated via exponential moving average with `momentum`.
+  @noDerivative public var runningMean: Parameter
+
+  /// Running variance statistics accumulated during training, used during inference.
+  ///
+  /// Shape: `[channels]`. Updated via exponential moving average with `momentum`.
+  @noDerivative public var runningVariance: Parameter
+
+  /// Momentum for updating running statistics.
+  ///
+  /// Default: `0.1` (PyTorch-style). Formula: `running = (1 - momentum) * running + momentum * batch`.
   @noDerivative public var momentum: Float
+
+  /// Small constant for numerical stability.
+  ///
+  /// Default: `1e-5`. Added to variance before taking square root.
   @noDerivative public var epsilon: Float
+
+  /// Whether to apply learnable affine transformation.
+  ///
+  /// When `true` (default), learns `gamma` and `beta`. When `false`, only normalizes.
   @noDerivative public var affine: Bool
 
   public typealias Input = Tensor
@@ -111,7 +427,30 @@ public struct BatchNorm: Layer {
 
   // MARK: - Init
 
-  /// Create BatchNorm for `channels` with defaults matching PyTorch-style BN.
+  /// Creates a batch normalization layer.
+  ///
+  /// Initializes `gamma` to ones, `beta` to zeros, and running statistics appropriately.
+  ///
+  /// - Parameters:
+  ///   - channels: Number of channels (features) to normalize. For CNNs, this is the number
+  ///               of output channels from the previous Conv2D layer.
+  ///   - momentum: Momentum for running statistics updates. Default `0.1` (PyTorch-style).
+  ///               Higher values adapt faster to new statistics.
+  ///   - epsilon: Small constant for numerical stability. Default `1e-5`.
+  ///   - affine: Whether to learn scale and shift parameters. Default `true`.
+  ///   - dtype: Data type for parameters. Default `.float32`.
+  ///   - device: Device for parameters. Default `.cpu`.
+  ///
+  /// ```swift
+  /// // After Conv2D with 64 output channels
+  /// let bn = BatchNorm(channels: 64)
+  ///
+  /// // With custom momentum
+  /// let bn = BatchNorm(channels: 128, momentum: 0.01)
+  ///
+  /// // Without learnable affine
+  /// let bn = BatchNorm(channels: 256, affine: false)
+  /// ```
   public init(
     channels: Int,
     momentum: Float = 0.1,
@@ -129,7 +468,17 @@ public struct BatchNorm: Layer {
     self.affine = affine
   }
 
-  /// Backward-compat alias (drop-in).
+  /// Creates a batch normalization layer (backward compatibility alias).
+  ///
+  /// This initializer provides backward compatibility. Prefer using ``init(channels:momentum:epsilon:affine:dtype:device:)``.
+  ///
+  /// - Parameters:
+  ///   - featureCount: Number of features/channels (alias for `channels`).
+  ///   - momentum: Momentum for running statistics. Default `0.1`.
+  ///   - epsilon: Numerical stability constant. Default `1e-5`.
+  ///   - affine: Whether to learn affine parameters. Default `true`.
+  ///   - dtype: Data type. Default `.float32`.
+  ///   - device: Device. Default `.cpu`.
   public init(
     featureCount: Int,
     momentum: Float = 0.1,
@@ -258,9 +607,42 @@ public struct BatchNorm: Layer {
     return y
   }
 
+  /// Applies batch normalization to the input.
+  ///
+  /// Behavior depends on the current learning phase:
+  /// - **Training**: Computes batch statistics, normalizes, updates running statistics
+  /// - **Inference**: Uses accumulated running statistics for normalization
+  ///
+  /// - Parameter x: Input tensor with rank ≥ 2. Channel dimension must be at index 1.
+  ///                Shape: `[batch, channels, ...]` (e.g., `[N, C]` or `[N, C, H, W]`)
+  ///
+  /// - Returns: Normalized tensor with same shape as input.
+  ///
+  /// ```swift
+  /// let bn = BatchNorm(channels: 64)
+  ///
+  /// // Training mode
+  /// Context.local.learningPhase = .training
+  /// let features = Tensor.randn([32, 64, 28, 28])
+  /// let normed = bn(features)  // Uses batch statistics, updates running stats
+  ///
+  /// // Inference mode
+  /// Context.local.learningPhase = .inference
+  /// let testFeatures = Tensor.randn([1, 64, 28, 28])
+  /// let testNormed = bn(testFeatures)  // Uses running statistics
+  ///
+  /// // In a CNN
+  /// var x = Tensor.randn([16, 64, 32, 32])
+  /// x = conv(x)
+  /// x = bn(x)
+  /// x = x.relu()
+  /// ```
+  ///
+  /// - Note: The layer automatically switches behavior based on `Context.local.learningPhase`.
+  ///         Gradients are computed appropriately for training mode.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
-    // Decide phase based on thread-local context. :contentReference[oaicite:11]{index=11}
+    // Decide phase based on thread-local context.
     switch Context.local.learningPhase {
     case .training:
       let (y, meanVec, varVec) = forwardTraining(x)

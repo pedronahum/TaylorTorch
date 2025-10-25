@@ -1,13 +1,349 @@
 import Foundation
 import _Differentiation
 
-/// Multi-Head Attention (scaled dot-product, features last).
+/// Multi-head self-attention mechanism for transformers.
 ///
-/// Shapes:
-///   - query: [N, Lq, C], key: [N, Lk, C], value: [N, Lk, C], with C % numHeads == 0
-///   - mask (optional, @noDerivative): broadcastable to [N, H, Lq, Lk] where `true` masks positions.
+/// `MultiHeadAttention` is the core building block of transformer architectures, enabling the model
+/// to attend to different parts of the input sequence in parallel. It's essential for BERT, GPT,
+/// Vision Transformers, and all modern attention-based models.
 ///
-/// Weights are stored as [in, out] and applied as `x.matmul(W) + b`.
+/// ## Overview
+///
+/// Multi-head attention extends the standard attention mechanism by running multiple attention
+/// operations in parallel ("heads"), each learning to focus on different aspects of the input.
+/// The outputs are then concatenated and linearly transformed.
+///
+/// ### Operation
+///
+/// For each attention head independently:
+/// ```
+/// Q, K, V = query*Wq, key*Wk, value*Wv  // Project inputs
+/// scores = (Q * K^T) / sqrt(d_head)      // Compute attention scores
+/// attention = softmax(scores)             // Normalize scores
+/// output = attention * V                  // Weighted sum of values
+/// ```
+///
+/// Then concatenate all heads and project:
+/// ```
+/// concatenated = concat(head_1, head_2, ..., head_H)
+/// output = concatenated * Wo + bo
+/// ```
+///
+/// ## Creating MultiHeadAttention
+///
+/// ```swift
+/// // Standard transformer attention (BERT/GPT style)
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)
+///
+/// // BERT-Base configuration
+/// let bertAttn = MultiHeadAttention(embedDim: 768, numHeads: 12)
+///
+/// // GPT-2 configuration
+/// let gptAttn = MultiHeadAttention(embedDim: 768, numHeads: 12)
+///
+/// // Vision Transformer
+/// let vitAttn = MultiHeadAttention(embedDim: 768, numHeads: 12)
+/// ```
+///
+/// ## Usage Examples
+///
+/// ### Self-Attention (most common)
+///
+/// ```swift
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)
+/// let tokens = Tensor.randn([32, 100, 512])  // [batch, seqLen, embedDim]
+///
+/// // Self-attention: query, key, value all come from same input
+/// let input = MultiHeadAttention.Input.selfAttention(tokens)
+/// let output = mha(input)  // [32, 100, 512]
+/// ```
+///
+/// ### Cross-Attention (encoder-decoder)
+///
+/// ```swift
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)
+///
+/// let decoderTokens = Tensor.randn([32, 50, 512])   // Query from decoder
+/// let encoderOutput = Tensor.randn([32, 100, 512])  // Key/Value from encoder
+///
+/// // Cross-attention: query from decoder, key/value from encoder
+/// let input = MultiHeadAttention.Input(
+///     query: decoderTokens,
+///     key: encoderOutput,
+///     value: encoderOutput
+/// )
+/// let output = mha(input)  // [32, 50, 512]
+/// ```
+///
+/// ### With Attention Mask (causal/padding)
+///
+/// ```swift
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)
+/// let tokens = Tensor.randn([32, 100, 512])
+///
+/// // Causal mask for autoregressive models (GPT-style)
+/// let causalMask = createCausalMask(sequenceLength: 100)  // Upper triangular
+///
+/// let input = MultiHeadAttention.Input.selfAttention(tokens, mask: causalMask)
+/// let output = mha(input)  // Each position can only attend to past
+/// ```
+///
+/// ## Shape Specifications
+///
+/// ### Inputs
+/// - **Query**: `[batch, queryLength, embedDim]`
+/// - **Key**: `[batch, keyLength, embedDim]`
+/// - **Value**: `[batch, keyLength, embedDim]`
+/// - **Mask** (optional): `[batch, numHeads, queryLength, keyLength]` or broadcastable
+///
+/// ### Output
+/// - `[batch, queryLength, embedDim]`
+///
+/// ### Internal Shapes
+/// After splitting into heads:
+/// - Q, K, V: `[batch, numHeads, seqLength, headDim]` where `headDim = embedDim / numHeads`
+/// - Attention scores: `[batch, numHeads, queryLength, keyLength]`
+///
+/// ```swift
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)  // headDim = 64
+///
+/// let query = Tensor.randn([32, 50, 512])   // [batch, queryLen, embedDim]
+/// let key = Tensor.randn([32, 100, 512])    // [batch, keyLen, embedDim]
+/// let value = Tensor.randn([32, 100, 512])  // [batch, keyLen, embedDim]
+///
+/// let input = MultiHeadAttention.Input(query: query, key: key, value: value)
+/// let output = mha(input)  // [32, 50, 512] - query length preserved
+/// ```
+///
+/// ## Attention Mechanisms
+///
+/// ### Self-Attention
+/// All three inputs (Q, K, V) come from the same sequence:
+///
+/// ```swift
+/// // BERT-style bidirectional self-attention
+/// let input = MultiHeadAttention.Input.selfAttention(embeddings)
+/// let output = attention(input)
+/// ```
+///
+/// Each token can attend to all other tokens in the sequence.
+///
+/// ### Masked Self-Attention (Causal)
+/// For autoregressive models (GPT), prevent attending to future positions:
+///
+/// ```swift
+/// // Create causal mask (upper triangular = masked)
+/// func createCausalMask(sequenceLength: Int) -> Tensor {
+///     // Returns shape [1, 1, seqLen, seqLen] with upper triangle = true
+///     // ... implementation ...
+/// }
+///
+/// let mask = createCausalMask(sequenceLength: seqLen)
+/// let input = MultiHeadAttention.Input.selfAttention(tokens, mask: mask)
+/// let output = mha(input)  // Each position only sees past
+/// ```
+///
+/// ### Cross-Attention
+/// Query from one sequence, Key/Value from another (encoder-decoder):
+///
+/// ```swift
+/// // Decoder attending to encoder
+/// let input = MultiHeadAttention.Input(
+///     query: decoderState,    // What we're computing
+///     key: encoderOutput,      // What we're attending to
+///     value: encoderOutput     // What we're retrieving
+/// )
+/// let output = mha(input)
+/// ```
+///
+/// ## In Transformer Architectures
+///
+/// ### Transformer Encoder Layer
+///
+/// ```swift
+/// struct TransformerEncoderLayer: Layer {
+///     var selfAttention: MultiHeadAttention
+///     var norm1: LayerNorm
+///     var feedForward: Sequential<...>
+///     var norm2: LayerNorm
+///
+///     init(modelDim: Int, numHeads: Int) {
+///         selfAttention = MultiHeadAttention(embedDim: modelDim, numHeads: numHeads)
+///         norm1 = LayerNorm(featureCount: modelDim)
+///         feedForward = Sequential {
+///             Linear(inputSize: modelDim, outputSize: modelDim * 4)
+///             GELU()
+///             Linear(inputSize: modelDim * 4, outputSize: modelDim)
+///         }
+///         norm2 = LayerNorm(featureCount: modelDim)
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ x: Tensor, mask: Tensor? = nil) -> Tensor {
+///         // Pre-norm style (modern)
+///         var h = x
+///         let attnInput = MultiHeadAttention.Input.selfAttention(norm1(h), mask: mask)
+///         h = h + selfAttention(attnInput)
+///         h = h + feedForward(norm2(h))
+///         return h
+///     }
+/// }
+/// ```
+///
+/// ### Transformer Decoder Layer
+///
+/// ```swift
+/// struct TransformerDecoderLayer: Layer {
+///     var selfAttention: MultiHeadAttention
+///     var crossAttention: MultiHeadAttention
+///     var feedForward: Sequential<...>
+///     var norm1: LayerNorm
+///     var norm2: LayerNorm
+///     var norm3: LayerNorm
+///
+///     @differentiable
+///     func callAsFunction(
+///         _ x: Tensor,
+///         encoderOutput: Tensor,
+///         srcMask: Tensor?,
+///         tgtMask: Tensor?
+///     ) -> Tensor {
+///         var h = x
+///
+///         // Masked self-attention
+///         let selfAttnInput = MultiHeadAttention.Input.selfAttention(norm1(h), mask: tgtMask)
+///         h = h + selfAttention(selfAttnInput)
+///
+///         // Cross-attention to encoder
+///         let crossAttnInput = MultiHeadAttention.Input(
+///             query: norm2(h),
+///             key: encoderOutput,
+///             value: encoderOutput,
+///             mask: srcMask
+///         )
+///         h = h + crossAttention(crossAttnInput)
+///
+///         // Feed-forward
+///         h = h + feedForward(norm3(h))
+///         return h
+///     }
+/// }
+/// ```
+///
+/// ## Attention Masks
+///
+/// Masks control which positions can attend to which. `true` values are masked (prevented from attending).
+///
+/// ### Padding Mask
+/// Ignore padding tokens:
+///
+/// ```swift
+/// // Shape: [batch, 1, 1, seqLen]
+/// // true where tokens are padding
+/// ```
+///
+/// ### Causal Mask
+/// Prevent attending to future positions (GPT-style):
+///
+/// ```swift
+/// // Shape: [1, 1, seqLen, seqLen]
+/// // Upper triangle is true (future positions masked)
+/// ```
+///
+/// ### Combined Masks
+/// Combine padding and causal masks with logical OR.
+///
+/// ## Multi-Head Benefits
+///
+/// Multiple heads allow the model to:
+/// 1. **Attend to different positions**: Each head can focus on different parts of the sequence
+/// 2. **Learn different relationships**: Syntactic, semantic, positional patterns
+/// 3. **Increase capacity**: More parameters without increasing sequence length
+/// 4. **Stabilize training**: Redundancy helps with gradient flow
+///
+/// ## Parameters
+///
+/// For `embedDim=512, numHeads=8`:
+/// - Query projection: 512 × 512 + 512 = 262,656
+/// - Key projection: 512 × 512 + 512 = 262,656
+/// - Value projection: 512 × 512 + 512 = 262,656
+/// - Output projection: 512 × 512 + 512 = 262,656
+/// - **Total**: ~1M parameters
+///
+/// ## Common Configurations
+///
+/// | Model | embedDim | numHeads | headDim | Layers |
+/// |-------|----------|----------|---------|--------|
+/// | BERT-Base | 768 | 12 | 64 | 12 |
+/// | BERT-Large | 1024 | 16 | 64 | 24 |
+/// | GPT-2 Small | 768 | 12 | 64 | 12 |
+/// | GPT-2 Medium | 1024 | 16 | 64 | 24 |
+/// | GPT-2 Large | 1280 | 20 | 64 | 36 |
+/// | ViT-Base | 768 | 12 | 64 | 12 |
+///
+/// ## Automatic Differentiation
+///
+/// MultiHeadAttention is fully differentiable:
+///
+/// ```swift
+/// let mha = MultiHeadAttention(embedDim: 512, numHeads: 8)
+/// let tokens = Tensor.randn([32, 100, 512])
+/// let input = MultiHeadAttention.Input.selfAttention(tokens)
+///
+/// let (output, pullback) = valueWithPullback(at: mha, input) { layer, inp in
+///     layer(inp)
+/// }
+///
+/// let gradOutput = Tensor.ones([32, 100, 512])
+/// let (mhaGrad, inputGrad) = pullback(gradOutput)
+/// // mhaGrad contains gradients for all projection matrices
+/// // inputGrad contains gradients for query, key, value
+/// ```
+///
+/// ## Performance Considerations
+///
+/// - **Complexity**: O(L² × D) where L is sequence length, D is embedding dimension
+/// - **Memory**: Attention scores require O(L²) memory per head
+/// - **Optimization**: Use efficient attention implementations for long sequences
+/// - **Batching**: Larger batches improve GPU utilization
+/// - **Sequence Length**: Quadratic scaling makes very long sequences expensive
+///
+/// ## Topics
+///
+/// ### Creating MultiHeadAttention
+///
+/// - ``init(embedDim:numHeads:dtype:device:)``
+///
+/// ### Input Structure
+///
+/// - ``Input``
+/// - ``Input/init(query:key:value:mask:)``
+/// - ``Input/selfAttention(_:mask:)``
+///
+/// ### Properties
+///
+/// - ``embedDim``
+/// - ``numHeads``
+/// - ``headDim``
+/// - ``wq`` - Query projection weight
+/// - ``wk`` - Key projection weight
+/// - ``wv`` - Value projection weight
+/// - ``wo`` - Output projection weight
+/// - ``bq`` - Query projection bias
+/// - ``bk`` - Key projection bias
+/// - ``bv`` - Value projection bias
+/// - ``bo`` - Output projection bias
+///
+/// ### Forward Pass
+///
+/// - ``callAsFunction(_:)``
+///
+/// ## See Also
+///
+/// - ``LayerNorm`` - Essential for transformer architectures
+/// - ``Linear`` - Feed-forward layers in transformers
+/// - ``GELU`` - Common activation in transformers
+/// - ``Sequential`` - Compose transformer components
 public struct MultiHeadAttention: Layer {
   // Hyper-parameters (not differentiable)
   @noDerivative public let embedDim: Int

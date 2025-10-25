@@ -1,0 +1,134 @@
+name: Deploy DocC Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Sources/**/*.swift'
+      - 'Sources/**/*.md'
+      - '.github/workflows/deploy-docc.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-14  # macOS required for Swift DocC
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better DocC generation
+
+    - name: Setup Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "5.9"
+
+    - name: Cache Swift dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          .build
+          ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+
+    - name: Install swift-docc-plugin (if needed)
+      run: |
+        # Check if swift-docc-plugin is available
+        if ! swift package plugin --list 2>/dev/null | grep -q docc; then
+          echo "swift-docc-plugin not found in dependencies"
+          echo "Documentation will be built using available Swift toolchain"
+        else
+          echo "swift-docc-plugin found"
+        fi
+
+    - name: Resolve dependencies
+      run: swift package resolve
+
+    - name: Build documentation
+      run: |
+        # Create docs output directory
+        mkdir -p docs
+
+        # Generate static DocC documentation
+        # Using --allow-writing-to-directory to permit output
+        swift package \
+          --allow-writing-to-directory ./docs \
+          generate-documentation \
+          --target Torch \
+          --output-path ./docs \
+          --transform-for-static-hosting \
+          --hosting-base-path TaylorTorch
+
+        echo "✅ Documentation generated successfully"
+
+        # Verify docs were created
+        if [ ! -f "docs/index.html" ]; then
+          echo "❌ Error: index.html not found in docs/"
+          echo "Generated files:"
+          ls -la docs/
+          exit 1
+        fi
+
+        echo "📚 Documentation structure:"
+        ls -lh docs/
+      continue-on-error: false
+
+    - name: Add custom index redirect (optional)
+      run: |
+        # Create a root index.html that redirects to the documentation
+        cat > docs/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="refresh" content="0; url=documentation/torch/">
+            <title>TaylorTorch Documentation</title>
+        </head>
+        <body>
+            <p>Redirecting to <a href="documentation/torch/">TaylorTorch Documentation</a>...</p>
+        </body>
+        </html>
+        EOF
+        echo "✅ Custom index.html created"
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: './docs'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+    - name: Output documentation URL
+      run: |
+        echo "📖 Documentation deployed successfully!"
+        echo "🔗 URL: ${{ steps.deployment.outputs.page_url }}"
+        echo ""
+        echo "Direct links:"
+        echo "  - Home: ${{ steps.deployment.outputs.page_url }}documentation/torch/"
+        echo "  - Tutorials: ${{ steps.deployment.outputs.page_url }}documentation/torch/tutorials"

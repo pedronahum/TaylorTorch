@@ -203,43 +203,78 @@ jobs:
         echo "Clang resource dir: ${CLANG_RESOURCE_DIR}"
         echo "LLVM base dir: ${LLVM_BASE_DIR}"
 
-        # Use Swift toolchain's libc++ exclusively - DO NOT use system LLVM's libc++
+        # Try Swift toolchain's libc++ first, fall back to system LLVM 18
         LIBCXX_INCLUDE_DIR=""
+        LIBCXX_SOURCE="unknown"
+        
+        # First, check Swift toolchain locations
         for candidate in \
           "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
-          "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"; do
+          "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
+          "${SWIFT_TOOLCHAIN_DIR}/lib/swift_static/clang/include/c++/v1" \
+          "${CLANG_RESOURCE_DIR}/../../../include/c++/v1"; do
           if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then
             LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"
-            echo "✓ Found Swift's libc++ at ${LIBCXX_INCLUDE_DIR}"
+            LIBCXX_SOURCE="Swift toolchain"
+            echo "✓ Found libc++ in Swift toolchain at ${LIBCXX_INCLUDE_DIR}"
             break
           fi
         done
 
+        # Fall back to system LLVM 18 if Swift doesn't have libc++
         if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then
-          echo "ERROR: Unable to locate Swift toolchain's libc++ headers."
-          echo "Searched in:"
-          echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1"
-          echo "  ${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"
+          echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 18"
+          for candidate in \
+            "/usr/lib/llvm-18/include/c++/v1" \
+            "/usr/include/c++/v1"; do
+            if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then
+              LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"
+              LIBCXX_SOURCE="system LLVM 18"
+              echo "✓ Found libc++ in system at ${LIBCXX_INCLUDE_DIR}"
+              break
+            fi
+          done
+        fi
+
+        if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then
+          echo "ERROR: Unable to locate libc++ headers."
+          echo "Please ensure libc++-18-dev is installed."
           exit 1
         fi
 
-        # Use Swift toolchain's libc++ libraries exclusively
+        # Find corresponding libc++ library directory
         LIBCXX_LIBRARY_DIR=""
-        for candidate in \
-          "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" \
-          "${SWIFT_TOOLCHAIN_DIR}/lib"; do
-          if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
-            LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
-            echo "✓ Found Swift's libc++ library at ${LIBCXX_LIBRARY_DIR}"
-            break
-          fi
-        done
+        
+        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then
+          # Look in Swift toolchain locations
+          for candidate in \
+            "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" \
+            "${SWIFT_TOOLCHAIN_DIR}/lib"; do
+            if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
+              LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
+              echo "✓ Found libc++ library in Swift toolchain at ${LIBCXX_LIBRARY_DIR}"
+              break
+            fi
+          done
+        fi
+        
+        # Fall back to system LLVM 18 libraries
+        if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then
+          for candidate in \
+            "/usr/lib/llvm-18/lib" \
+            "/usr/lib/x86_64-linux-gnu" \
+            "/usr/lib"; do
+            if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
+              LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
+              echo "✓ Found libc++ library at ${LIBCXX_LIBRARY_DIR}"
+              break
+            fi
+          done
+        fi
 
         if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then
-          echo "ERROR: Unable to locate Swift toolchain's libc++ libraries."
-          echo "Searched in:"
-          echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux"
-          echo "  ${SWIFT_TOOLCHAIN_DIR}/lib"
+          echo "ERROR: Unable to locate libc++ libraries."
+          echo "Please ensure libc++-18-dev is installed."
           exit 1
         fi
 

@@ -20,13 +20,96 @@ import _Differentiation
 
 // MARK: - Basic Loss Functions
 
-/// Computes the L1 loss between `expected` and `predicted`.
-/// `loss = reduction(abs(expected - predicted))`
+/// Computes the L1 loss (Mean Absolute Error) between predicted and expected values.
+///
+/// L1 loss measures the mean absolute difference between predictions and targets.
+/// It's more robust to outliers than L2 loss because it penalizes errors linearly
+/// rather than quadratically.
+///
+/// ## Formula
+///
+/// ```
+/// L1(y, ŷ) = reduction(|y - ŷ|)
+/// ```
+///
+/// Where:
+/// - `y` = expected (ground truth)
+/// - `ŷ` = predicted values
+/// - `reduction` = aggregation function (sum, mean, etc.)
+///
+/// ## Basic Usage
+///
+/// ```swift
+/// let predictions = model(input)  // [batch, features]
+/// let targets = labels            // [batch, features]
+///
+/// // Mean absolute error (default)
+/// let loss = l1Loss(predicted: predictions, expected: targets, reduction: mean)
+///
+/// // Sum of absolute errors
+/// let totalError = l1Loss(predicted: predictions, expected: targets, reduction: sum)
+/// ```
+///
+/// ## When to Use L1 Loss
+///
+/// **Use L1 loss when:**
+/// - You have outliers in your data (L1 is less sensitive)
+/// - You want sparse predictions (L1 encourages sparsity)
+/// - Doing regression on noisy data
+/// - You care about median accuracy more than mean accuracy
+///
+/// **Don't use L1 loss when:**
+/// - You need smooth gradients (L1 has non-smooth gradient at 0)
+/// - Small errors are as important as large errors (use L2 instead)
+///
+/// ## Complete Regression Example
+///
+/// ```swift
+/// // Simple regression model
+/// var model = Sequential {
+///     Dense(inputSize: 10, outputSize: 64)
+///     ReLU()
+///     Dense(inputSize: 64, outputSize: 1)
+/// }
+///
+/// var optimizer = Adam(for: model, learningRate: 1e-3)
+///
+/// // Training loop
+/// for epoch in 1...100 {
+///     for (x, y) in trainLoader {
+///         let (loss, gradients) = valueWithGradient(at: model) { model -> Tensor in
+///             let predictions = model(x)
+///             return l1Loss(predicted: predictions, expected: y, reduction: mean)
+///         }
+///
+///         optimizer.update(&model, along: gradients)
+///     }
+/// }
+/// ```
+///
+/// ## L1 vs L2 Loss
+///
+/// | Aspect | L1 Loss | L2 Loss |
+/// |--------|---------|---------|
+/// | Formula | \|y - ŷ\| | (y - ŷ)² |
+/// | Gradient | Constant magnitude | Proportional to error |
+/// | Outlier Sensitivity | Low (robust) | High (sensitive) |
+/// | Sparsity | Encourages | Doesn't encourage |
+/// | Smoothness | Non-smooth at 0 | Smooth everywhere |
+/// | Best for | Noisy data, outliers | Clean data, no outliers |
+///
+/// ## Parameters
 ///
 /// - Parameters:
-///   - predicted: Predicted outputs from a neural network.
-///   - expected: Expected values, i.e. targets, that correspond to the correct output.
-///   - reduction: A differentiable function to apply on the computed element-wise loss values.
+///   - predicted: Predicted outputs from a neural network
+///   - expected: Expected values (ground truth targets)
+///   - reduction: Aggregation function to apply (default: `sum`)
+///
+/// ## See Also
+///
+/// - ``l2Loss(predicted:expected:reduction:)`` - L2 loss (mean squared error)
+/// - ``meanAbsoluteError(predicted:expected:)`` - Convenience function for mean L1 loss
+/// - ``huberLoss(predicted:expected:delta:reduction:)`` - Hybrid of L1 and L2
 @differentiable(reverse)
 public func l1Loss(
   predicted: Tensor,
@@ -36,13 +119,172 @@ public func l1Loss(
   reduction(abs(expected - predicted))
 }
 
-/// Computes the L2 loss between `expected` and `predicted`.
-/// `loss = reduction(square(expected - predicted))`
+/// Computes the L2 loss (Mean Squared Error) between predicted and expected values.
+///
+/// L2 loss measures the mean squared difference between predictions and targets.
+/// It heavily penalizes large errors (quadratically), making it sensitive to outliers
+/// but providing smooth gradients for optimization.
+///
+/// ## Formula
+///
+/// ```
+/// L2(y, ŷ) = reduction((y - ŷ)²)
+/// ```
+///
+/// Where:
+/// - `y` = expected (ground truth)
+/// - `ŷ` = predicted values
+/// - `reduction` = aggregation function (sum, mean, etc.)
+///
+/// ## Basic Usage
+///
+/// ```swift
+/// let predictions = model(input)  // [batch, features]
+/// let targets = labels            // [batch, features]
+///
+/// // Mean squared error
+/// let loss = l2Loss(predicted: predictions, expected: targets, reduction: mean)
+///
+/// // Sum of squared errors
+/// let totalError = l2Loss(predicted: predictions, expected: targets, reduction: sum)
+/// ```
+///
+/// ## When to Use L2 Loss
+///
+/// **Use L2 loss when:**
+/// - Your data has minimal outliers
+/// - You want large errors to be heavily penalized
+/// - You need smooth gradients everywhere
+/// - Doing standard regression tasks
+/// - Training neural networks for continuous outputs
+///
+/// **Don't use L2 loss when:**
+/// - Your data has many outliers (use L1 or Huber instead)
+/// - Extreme errors would dominate training
+/// - You want robust prediction to noise
+///
+/// ## Complete Regression Example
+///
+/// ```swift
+/// // Neural network for house price prediction
+/// struct HousePriceModel: Layer {
+///     var fc1: Dense
+///     var fc2: Dense
+///     var fc3: Dense
+///
+///     init(numFeatures: Int) {
+///         fc1 = Dense(inputSize: numFeatures, outputSize: 128)
+///         fc2 = Dense(inputSize: 128, outputSize: 64)
+///         fc3 = Dense(inputSize: 64, outputSize: 1)
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ input: Tensor) -> Tensor {
+///         var x = fc1(input).relu()
+///         x = fc2(x).relu()
+///         return fc3(x)  // No activation for regression
+///     }
+/// }
+///
+/// var model = HousePriceModel(numFeatures: 10)
+/// var optimizer = Adam(for: model, learningRate: 1e-3)
+///
+/// // Training loop
+/// for epoch in 1...200 {
+///     for (features, prices) in trainLoader {
+///         let (loss, gradients) = valueWithGradient(at: model) { model -> Tensor in
+///             let predictions = model(features)
+///             // Use mean squared error for regression
+///             return l2Loss(predicted: predictions, expected: prices, reduction: mean)
+///         }
+///
+///         optimizer.update(&model, along: gradients)
+///     }
+///
+///     // Validation
+///     let valPredictions = model(valFeatures)
+///     let valLoss = l2Loss(predicted: valPredictions, expected: valPrices, reduction: mean)
+///     let rmse = sqrt(valLoss)  // Root Mean Squared Error
+///     print("Epoch \(epoch): RMSE = \(rmse.item())")
+/// }
+/// ```
+///
+/// ## L2 vs L1 Loss
+///
+/// | Aspect | L2 Loss | L1 Loss |
+/// |--------|---------|---------|
+/// | Formula | (y - ŷ)² | \|y - ŷ\| |
+/// | Gradient | 2(y - ŷ) | sign(y - ŷ) |
+/// | Outlier Sensitivity | High (sensitive) | Low (robust) |
+/// | Optimization | Smooth, easy | Non-smooth at 0 |
+/// | Error Penalty | Quadratic (severe for large errors) | Linear |
+/// | Best for | Clean data, standard regression | Noisy data, outliers |
+/// | Common Use | Default for regression | Robust regression |
+///
+/// ## Metrics Derived from L2 Loss
+///
+/// ```swift
+/// // Mean Squared Error (MSE)
+/// let mse = l2Loss(predicted: predictions, expected: targets, reduction: mean)
+///
+/// // Root Mean Squared Error (RMSE)
+/// let rmse = sqrt(mse)
+///
+/// // Sum of Squared Errors (SSE)
+/// let sse = l2Loss(predicted: predictions, expected: targets, reduction: sum)
+/// ```
+///
+/// ## Image Reconstruction Example
+///
+/// L2 loss is commonly used for autoencoders and image reconstruction:
+///
+/// ```swift
+/// struct Autoencoder: Layer {
+///     var encoder: Sequential<...>
+///     var decoder: Sequential<...>
+///
+///     init() {
+///         encoder = Sequential {
+///             Conv2D(inChannels: 3, outChannels: 32, kernelSize: (3, 3))
+///             ReLU()
+///             MaxPool2D(kernelSize: (2, 2))
+///             // ... more layers ...
+///         }
+///         decoder = Sequential {
+///             // ... decoder layers ...
+///         }
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ images: Tensor) -> Tensor {
+///         let encoded = encoder(images)
+///         return decoder(encoded)
+///     }
+/// }
+///
+/// var model = Autoencoder()
+/// var optimizer = Adam(for: model, learningRate: 1e-3)
+///
+/// // Training: minimize reconstruction error
+/// let (loss, gradients) = valueWithGradient(at: model) { model -> Tensor in
+///     let reconstructed = model(images)
+///     // Pixel-wise L2 loss
+///     return l2Loss(predicted: reconstructed, expected: images, reduction: mean)
+/// }
+/// ```
+///
+/// ## Parameters
 ///
 /// - Parameters:
-///   - predicted: Predicted outputs from a neural network.
-///   - expected: Expected values, i.e. targets, that correspond to the correct output.
-///   - reduction: A differentiable function to apply on the computed element-wise loss values.
+///   - predicted: Predicted outputs from a neural network
+///   - expected: Expected values (ground truth targets)
+///   - reduction: Aggregation function to apply (default: `sum`)
+///
+/// ## See Also
+///
+/// - ``l1Loss(predicted:expected:reduction:)`` - L1 loss (mean absolute error)
+/// - ``meanSquaredError(predicted:expected:)`` - Convenience function for mean L2 loss
+/// - ``huberLoss(predicted:expected:delta:reduction:)`` - Hybrid of L1 and L2 for robustness
 @differentiable(reverse)
 public func l2Loss(
   predicted: Tensor,
@@ -263,12 +505,233 @@ public func sigmoidCrossEntropy(
   return reduction(maxLogitsWithZero - logits * labels + logExp)
 }
 
-/// Computes the softmax cross entropy between logits and labels.
-/// Use this cross-entropy loss function when there are two or more label classes.
+/// Computes the softmax cross-entropy loss between logits and labels for multi-class classification.
+///
+/// Softmax cross-entropy is the standard loss function for multi-class classification problems.
+/// It combines softmax activation with cross-entropy loss in a numerically stable way,
+/// and is used for training all modern classification networks (ResNet, BERT, GPT, etc.).
+///
+/// ## Formula
+///
+/// ```
+/// L(y, ŷ) = -log(exp(ŷ_y) / Σ_j exp(ŷ_j))
+///         = -ŷ_y + log(Σ_j exp(ŷ_j))
+/// ```
+///
+/// Where:
+/// - `y` = true class index
+/// - `ŷ` = logits (unscaled predictions) from the model
+/// - The formula computes the negative log probability of the correct class
+///
+/// ## Basic Usage
+///
+/// ```swift
+/// // Image classification model
+/// var model = Sequential {
+///     Conv2D(inChannels: 3, outChannels: 64, kernelSize: (3, 3))
+///     ReLU()
+///     MaxPool2D(kernelSize: (2, 2))
+///     Flatten()
+///     Dense(inputSize: 64 * 14 * 14, outputSize: 10)  // 10 classes
+/// }
+///
+/// let images = Tensor.randn([32, 3, 28, 28])  // Batch of 32 images
+/// let labels = Tensor([0, 1, 2, ...])         // True class indices [32]
+///
+/// // Forward pass
+/// let logits = model(images)  // [32, 10] - raw scores (no softmax!)
+///
+/// // Compute loss
+/// let loss = softmaxCrossEntropy(logits: logits, labels: labels)
+/// ```
+///
+/// **Important**: Do NOT apply softmax to your model's output! This function expects raw logits.
+///
+/// ## Complete CIFAR-10 Training Example
+///
+/// ```swift
+/// // CNN for CIFAR-10 classification
+/// struct CIFAR10Classifier: Layer {
+///     var conv1: Conv2D
+///     var conv2: Conv2D
+///     var conv3: Conv2D
+///     var fc1: Dense
+///     var fc2: Dense
+///
+///     init() {
+///         conv1 = Conv2D(inChannels: 3, outChannels: 32, kernelSize: (3, 3))
+///         conv2 = Conv2D(inChannels: 32, outChannels: 64, kernelSize: (3, 3))
+///         conv3 = Conv2D(inChannels: 64, outChannels: 128, kernelSize: (3, 3))
+///         fc1 = Dense(inputSize: 128 * 2 * 2, outputSize: 256)
+///         fc2 = Dense(inputSize: 256, outputSize: 10)  // 10 classes
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ input: Tensor) -> Tensor {
+///         var x = conv1(input).relu()
+///         x = x.maxPool2d(kernelSize: (2, 2))
+///         x = conv2(x).relu()
+///         x = x.maxPool2d(kernelSize: (2, 2))
+///         x = conv3(x).relu()
+///         x = x.maxPool2d(kernelSize: (2, 2))
+///         x = x.flatten(startDim: 1)
+///         x = fc1(x).relu()
+///         return fc2(x)  // Return logits (NO softmax)
+///     }
+/// }
+///
+/// var model = CIFAR10Classifier()
+/// var optimizer = SGD(for: model, learningRate: 0.01, momentum: 0.9)
+///
+/// // Training loop
+/// for epoch in 1...100 {
+///     var totalLoss: Float = 0
+///     var correct: Int = 0
+///     var total: Int = 0
+///
+///     for (images, labels) in trainLoader {
+///         // Forward + backward
+///         let (loss, gradients) = valueWithGradient(at: model) { model -> Tensor in
+///             let logits = model(images)
+///             return softmaxCrossEntropy(logits: logits, labels: labels)
+///         }
+///
+///         optimizer.update(&model, along: gradients)
+///
+///         // Compute accuracy
+///         let predictions = logits.argmax(dim: -1)
+///         correct += (predictions == labels).sum().item()
+///         total += labels.shape[0]
+///         totalLoss += loss.item()
+///     }
+///
+///     let accuracy = Float(correct) / Float(total) * 100
+///     print("Epoch \(epoch): Loss = \(totalLoss), Accuracy = \(accuracy)%")
+/// }
+/// ```
+///
+/// ## When to Use Softmax Cross-Entropy
+///
+/// **Use softmax cross-entropy when:**
+/// - Multi-class classification (3+ classes)
+/// - Each sample belongs to exactly ONE class (mutually exclusive)
+/// - Classes are nominal (no ordering: cat, dog, car, etc.)
+/// - Training CNNs, Transformers, or any classifier
+///
+/// **Don't use softmax cross-entropy when:**
+/// - Binary classification (use ``sigmoidCrossEntropy`` instead)
+/// - Multi-label classification (use ``sigmoidCrossEntropy`` per label)
+/// - Regression tasks (use ``l2Loss`` or ``l1Loss``)
+///
+/// ## Inference: Getting Class Probabilities and Predictions
+///
+/// ```swift
+/// // During training: use logits directly with softmaxCrossEntropy
+/// let loss = softmaxCrossEntropy(logits: logits, labels: labels)
+///
+/// // During inference: get probabilities or predictions
+/// let logits = model(images)  // [batch, numClasses]
+///
+/// // Get class probabilities
+/// let probabilities = logits.softmax(dim: -1)  // [batch, numClasses]
+/// // probabilities[i] sums to 1.0
+///
+/// // Get predicted class
+/// let predictions = logits.argmax(dim: -1)  // [batch]
+/// // predictions[i] in 0...(numClasses-1)
+///
+/// // Get confidence for top prediction
+/// let confidences = probabilities.max(dim: -1).values  // [batch]
+/// ```
+///
+/// ## Transformer Text Classification Example
+///
+/// ```swift
+/// // BERT-style text classifier
+/// struct TextClassifier: Layer {
+///     var embedding: Embedding
+///     var transformer: TransformerEncoderLayer
+///     var classifier: Dense
+///
+///     init(vocabSize: Int, numClasses: Int) {
+///         embedding = Embedding(vocabularySize: vocabSize, embeddingSize: 768)
+///         transformer = TransformerEncoderLayer(modelDim: 768, numHeads: 12)
+///         classifier = Dense(inputSize: 768, outputSize: numClasses)
+///     }
+///
+///     @differentiable
+///     func callAsFunction(_ tokens: Tensor) -> Tensor {
+///         var x = embedding(tokens)        // [batch, seqLen, 768]
+///         x = transformer(x)               // [batch, seqLen, 768]
+///         let cls = x[:, 0, :]             // [batch, 768] - Use [CLS] token
+///         return classifier(cls)           // [batch, numClasses]
+///     }
+/// }
+///
+/// var model = TextClassifier(vocabSize: 30000, numClasses: 2)
+/// var optimizer = Adam(for: model, learningRate: 2e-5)
+///
+/// // Fine-tuning loop
+/// for (tokens, labels) in trainLoader {
+///     let (loss, gradients) = valueWithGradient(at: model) { model -> Tensor in
+///         let logits = model(tokens)
+///         return softmaxCrossEntropy(logits: logits, labels: labels)
+///     }
+///     optimizer.update(&model, along: gradients)
+/// }
+/// ```
+///
+/// ## Common Loss Functions Comparison
+///
+/// | Loss Function | Use Case | Input Format | Output Type |
+/// |---------------|----------|--------------|-------------|
+/// | ``softmaxCrossEntropy`` | Multi-class (>2 classes) | Logits + class indices | Classification |
+/// | ``sigmoidCrossEntropy`` | Binary or multi-label | Logits + binary labels | Classification |
+/// | ``l2Loss`` | Regression | Predictions + continuous targets | Regression |
+/// | ``l1Loss`` | Robust regression | Predictions + continuous targets | Regression |
+///
+/// ## Numerical Stability
+///
+/// This implementation uses the log-sum-exp trick for numerical stability:
+/// ```
+/// log(Σ exp(x)) = max(x) + log(Σ exp(x - max(x)))
+/// ```
+///
+/// This prevents overflow/underflow when exponentiating large logits.
+///
+/// ## Label Smoothing (Advanced)
+///
+/// For better generalization, you can implement label smoothing:
+///
+/// ```swift
+/// func labelSmoothingCrossEntropy(
+///     logits: Tensor,
+///     labels: Tensor,
+///     smoothing: Float = 0.1
+/// ) -> Tensor {
+///     let numClasses = logits.shape.last!
+///     let logProbs = logSoftmax(logits, dim: -1)
+///
+///     // Soft targets: (1 - smoothing) * one_hot + smoothing / numClasses
+///     let oneHot = oneHot(indices: labels, depth: numClasses)
+///     let smoothedLabels = oneHot * (1.0 - smoothing) + smoothing / Float(numClasses)
+///
+///     return -(logProbs * smoothedLabels).sum(dim: -1).mean()
+/// }
+/// ```
+///
+/// ## Parameters
 ///
 /// - Parameters:
-///   - logits: Unscaled log probabilities from a neural network of shape `[batchSize, numClasses]`.
-///   - labels: Integer values (class indices) of shape `[batchSize]`.
+///   - logits: Unscaled log probabilities of shape `[batch, numClasses]`
+///   - labels: Integer class indices of shape `[batch]`, values in `0...(numClasses-1)`
+///   - reduction: Aggregation function (default: `mean`)
+///
+/// ## See Also
+///
+/// - ``sigmoidCrossEntropy(logits:labels:reduction:)`` - Binary cross-entropy
+/// - ``Tensor/softmax(dim:)`` - Softmax activation for inference
+/// - ``Tensor/argmax(dim:)`` - Get predicted class from logits
 @differentiable(reverse)
 public func softmaxCrossEntropy(
   logits: Tensor,

@@ -2,13 +2,54 @@ import Foundation
 import _Differentiation
 
 // MARK: - ReLU
+
+/// Rectified Linear Unit activation function: `f(x) = max(0, x)`.
+///
+/// ReLU is the most commonly used activation function in deep learning due to its simplicity
+/// and effectiveness. It introduces non-linearity while being computationally efficient.
+///
+/// ## Mathematical Definition
+///
+/// ```
+/// ReLU(x) = max(0, x) = {  x  if x > 0
+///                       {  0  otherwise
+/// ```
+///
+/// ## Usage
+///
+/// ```swift
+/// let model = Sequential {
+///     Linear(inputSize: 784, outputSize: 512)
+///     ReLU()  // Most common activation
+///     Linear(inputSize: 512, outputSize: 10)
+/// }
+/// ```
+///
+/// ## Characteristics
+///
+/// - **Advantages**: Fast computation, helps with vanishing gradient problem, sparsity
+/// - **Disadvantages**: "Dying ReLU" problem (neurons can permanently die)
+/// - **Gradient**: 1 for x > 0, 0 for x ≤ 0
+/// - **Range**: [0, ∞)
+///
+/// ## See Also
+///
+/// - ``LeakyReLU`` - Variant that allows small negative values
+/// - ``GELU`` - Smoother alternative used in transformers
+/// - ``SiLU`` - Self-gated activation function
 public struct ReLU: Layer {
   public typealias Input = Tensor
   public typealias Output = Tensor
+
+  /// Creates a ReLU activation layer.
   public init() {}
 
+  /// Applies ReLU activation element-wise: `max(0, x)`.
+  ///
+  /// - Parameter x: Input tensor of any shape.
+  /// - Returns: Output tensor of the same shape with ReLU applied element-wise.
   @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.relu() }  // elementwise op. :contentReference[oaicite:6]{index=6}
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.relu() }
 }
 
 extension ReLU {
@@ -90,13 +131,63 @@ extension LeakyReLU {
 }
 
 // MARK: - SiLU / Swish: x * sigmoid(x)
+
+/// Sigmoid Linear Unit (SiLU), also known as Swish: `f(x) = x * σ(x)`.
+///
+/// SiLU is a smooth, non-monotonic activation function that has shown strong performance
+/// in deep networks. It's a self-gated activation where the input is multiplied by its sigmoid.
+///
+/// ## Mathematical Definition
+///
+/// ```
+/// SiLU(x) = x * σ(x) = x / (1 + e^(-x))
+/// ```
+///
+/// Where σ(x) is the sigmoid function.
+///
+/// ## Usage
+///
+/// ```swift
+/// let model = Sequential {
+///     Linear(inputSize: 512, outputSize: 512)
+///     SiLU()  // Smooth alternative to ReLU
+///     Linear(inputSize: 512, outputSize: 256)
+/// }
+/// ```
+///
+/// ## Characteristics
+///
+/// - **Advantages**: Smooth, non-monotonic, self-gating, better than ReLU in some cases
+/// - **Disadvantages**: More computationally expensive than ReLU
+/// - **Gradient**: Smooth and bounded
+/// - **Range**: (-∞, ∞) but mostly in [0, ∞)
+/// - **Also Known As**: Swish activation
+///
+/// ## When to Use
+///
+/// - Deep residual networks
+/// - As a smooth alternative to ReLU
+/// - When training very deep networks
+/// - Mobile and efficient networks (MobileNetV3)
+///
+/// ## See Also
+///
+/// - ``ReLU`` - Simpler, faster activation
+/// - ``GELU`` - Similar smooth activation used in transformers
+/// - ``Sigmoid`` - Component of SiLU
 public struct SiLU: Layer {
-  public init() {}
   public typealias Input = Tensor
   public typealias Output = Tensor
 
+  /// Creates a SiLU activation layer.
+  public init() {}
+
+  /// Applies SiLU activation element-wise: `x * σ(x)`.
+  ///
+  /// - Parameter x: Input tensor of any shape.
+  /// - Returns: Output tensor of the same shape with SiLU applied element-wise.
   @differentiable(reverse)
-  public func callAsFunction(_ x: Tensor) -> Tensor { x.multiplying(x.sigmoid()) }  // :contentReference[oaicite:8]{index=8}
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.multiplying(x.sigmoid()) }
 }
 
 extension SiLU {
@@ -130,13 +221,102 @@ extension SiLU {
 }
 
 // MARK: - GELU (exact via erf, or fast tanh-approx)
+
+/// Gaussian Error Linear Unit (GELU): A smooth approximation to ReLU.
+///
+/// GELU is the activation function used in state-of-the-art language models like BERT and GPT.
+/// It provides a smooth, non-monotonic activation that weights inputs by their magnitude rather
+/// than using a hard cutoff like ReLU.
+///
+/// ## Mathematical Definition
+///
+/// The exact form using the error function:
+/// ```
+/// GELU(x) = x * Φ(x) = x * (1/2)[1 + erf(x/√2)]
+/// ```
+///
+/// Fast approximation using tanh:
+/// ```
+/// GELU(x) ≈ 0.5 * x * [1 + tanh(√(2/π) * (x + 0.044715 * x³))]
+/// ```
+///
+/// Where Φ(x) is the cumulative distribution function of the standard normal distribution.
+///
+/// ## Usage
+///
+/// ```swift
+/// // Standard usage (fast approximation)
+/// let transformer = Sequential {
+///     Linear(inputSize: 768, outputSize: 3072)
+///     GELU()  // Used in BERT, GPT, etc.
+///     Linear(inputSize: 3072, outputSize: 768)
+/// }
+///
+/// // Exact version (slightly slower)
+/// let exact = GELU(approximate: false)
+/// ```
+///
+/// ## Characteristics
+///
+/// - **Advantages**: Smooth, differentiable everywhere, better than ReLU for transformers
+/// - **Disadvantages**: More computationally expensive than ReLU
+/// - **Gradient**: Smooth and continuous
+/// - **Range**: (-∞, ∞) but mostly in [0, ∞)
+/// - **Used In**: BERT, GPT-2, GPT-3, Vision Transformers
+///
+/// ## Approximate vs Exact
+///
+/// - **Approximate** (default): Fast tanh-based approximation, ~98% accurate
+/// - **Exact**: Uses error function, slightly slower but mathematically exact
+///
+/// ```swift
+/// // Fast for production (default)
+/// let fast = GELU(approximate: true)
+///
+/// // Exact for research/verification
+/// let exact = GELU(approximate: false)
+/// ```
+///
+/// ## When to Use
+///
+/// - Transformer architectures (BERT, GPT)
+/// - Vision transformers (ViT)
+/// - When you need smooth activation with good gradient properties
+/// - State-of-the-art NLP models
+///
+/// ## See Also
+///
+/// - ``ReLU`` - Simpler, faster activation
+/// - ``SiLU`` - Another smooth activation
+/// - ``Tanh`` - Used in GELU approximation
 public struct GELU: Layer {
+  /// Whether to use the fast tanh approximation (default: true).
+  ///
+  /// - `true`: Fast approximation using tanh, ~98% accurate
+  /// - `false`: Exact computation using error function
   @noDerivative public let approximate: Bool
+
+  /// Creates a GELU activation layer.
+  ///
+  /// - Parameter approximate: If `true`, uses fast tanh approximation. If `false`, uses exact
+  ///                         error function computation. Defaults to `true`.
+  ///
+  /// ```swift
+  /// // Fast approximation (recommended)
+  /// let gelu = GELU()  // or GELU(approximate: true)
+  ///
+  /// // Exact computation
+  /// let exactGelu = GELU(approximate: false)
+  /// ```
   public init(approximate: Bool = true) { self.approximate = approximate }
 
   public typealias Input = Tensor
   public typealias Output = Tensor
 
+  /// Applies GELU activation element-wise.
+  ///
+  /// - Parameter x: Input tensor of any shape.
+  /// - Returns: Output tensor of the same shape with GELU applied element-wise.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
     if approximate {
@@ -207,11 +387,68 @@ extension GELU {
 }
 
 // MARK: - Tanh / Sigmoid (thin wrappers)
+
+/// Hyperbolic tangent activation function: `f(x) = tanh(x)`.
+///
+/// Tanh is a classic activation function that squashes input values to the range (-1, 1).
+/// It's a scaled and shifted version of the sigmoid function, centered at zero.
+///
+/// ## Mathematical Definition
+///
+/// ```
+/// tanh(x) = (e^x - e^(-x)) / (e^x + e^(-x)) = (e^(2x) - 1) / (e^(2x) + 1)
+/// ```
+///
+/// ## Usage
+///
+/// ```swift
+/// let model = Sequential {
+///     Linear(inputSize: 100, outputSize: 50)
+///     Tanh()  // Outputs in range (-1, 1)
+///     Linear(inputSize: 50, outputSize: 10)
+/// }
+/// ```
+///
+/// ## Characteristics
+///
+/// - **Advantages**: Zero-centered (unlike sigmoid), smooth, bounded output
+/// - **Disadvantages**: Vanishing gradient problem for large |x|, slower than ReLU
+/// - **Gradient**: Maximum at x=0 (gradient=1), approaches 0 for large |x|
+/// - **Range**: (-1, 1)
+/// - **Historically Used In**: RNNs, LSTMs (for gating)
+///
+/// ## When to Use
+///
+/// - RNN/LSTM gates (standard component)
+/// - When you need outputs in (-1, 1) range
+/// - Older architectures (less common in modern CNNs)
+/// - As a normalizing function
+///
+/// ## Tanh vs Sigmoid
+///
+/// Tanh is generally preferred over sigmoid for hidden layers because:
+/// - Zero-centered output helps with optimization
+/// - Stronger gradients in the middle range
+/// - Related by: tanh(x) = 2*sigmoid(2x) - 1
+///
+/// ## See Also
+///
+/// - ``Sigmoid`` - Related function with range (0, 1)
+/// - ``ReLU`` - Modern alternative for hidden layers
+/// - ``GELU`` - Smooth modern activation
 public struct Tanh: Layer {
-  public init() {}
   public typealias Input = Tensor
   public typealias Output = Tensor
-  @differentiable(reverse) public func callAsFunction(_ x: Tensor) -> Tensor { x.tanh() }  // :contentReference[oaicite:12]{index=12}
+
+  /// Creates a Tanh activation layer.
+  public init() {}
+
+  /// Applies tanh activation element-wise, squashing to (-1, 1).
+  ///
+  /// - Parameter x: Input tensor of any shape.
+  /// - Returns: Output tensor of the same shape with tanh applied element-wise.
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.tanh() }
 }
 extension Tanh {
   @derivative(of: callAsFunction, wrt: (self, x))
@@ -243,11 +480,82 @@ extension Tanh {
   }
 }
 
+/// Sigmoid activation function: `f(x) = 1 / (1 + e^(-x))`.
+///
+/// Sigmoid squashes input values to the range (0, 1), making it useful for binary classification
+/// and probability outputs. It's also used as a gating mechanism in RNNs and LSTMs.
+///
+/// ## Mathematical Definition
+///
+/// ```
+/// σ(x) = 1 / (1 + e^(-x))
+/// ```
+///
+/// ## Usage
+///
+/// ```swift
+/// // Binary classification output
+/// let binaryClassifier = Sequential {
+///     Linear(inputSize: 256, outputSize: 128)
+///     ReLU()
+///     Linear(inputSize: 128, outputSize: 1)
+///     Sigmoid()  // Probability output in (0, 1)
+/// }
+///
+/// // Multi-label classification (independent probabilities)
+/// let multiLabel = Sequential {
+///     Linear(inputSize: 512, outputSize: 10)
+///     Sigmoid()  // Each output is independent probability
+/// }
+/// ```
+///
+/// ## Characteristics
+///
+/// - **Advantages**: Smooth, bounded output, interpretable as probability
+/// - **Disadvantages**: Vanishing gradient problem, not zero-centered, slower than ReLU
+/// - **Gradient**: Maximum at x=0 (gradient=0.25), approaches 0 for large |x|
+/// - **Range**: (0, 1)
+/// - **Used In**: Binary classification, LSTM gates, attention weights
+///
+/// ## When to Use
+///
+/// - **Binary classification**: Final layer for binary outputs
+/// - **Multi-label classification**: When classes are independent
+/// - **Gating mechanisms**: In LSTMs and GRUs
+/// - **Attention weights**: To produce probability distributions
+/// - **NOT for hidden layers**: Use ReLU, GELU, or other modern activations instead
+///
+/// ## Sigmoid vs Softmax
+///
+/// - **Sigmoid**: For independent binary decisions (multi-label)
+/// - **Softmax**: For mutually exclusive classes (multi-class)
+///
+/// ```swift
+/// // Multi-label (can be multiple positives)
+/// let labels = Sigmoid()(logits)  // Each in (0, 1), independent
+///
+/// // Multi-class (exactly one class)
+/// let probs = Softmax()(logits)   // Sum to 1, mutually exclusive
+/// ```
+///
+/// ## See Also
+///
+/// - ``Tanh`` - Related function with range (-1, 1)
+/// - ``Softmax`` - For multi-class classification
+/// - ``SiLU`` - Uses sigmoid as gating mechanism
 public struct Sigmoid: Layer {
-  public init() {}
   public typealias Input = Tensor
   public typealias Output = Tensor
-  @differentiable(reverse) public func callAsFunction(_ x: Tensor) -> Tensor { x.sigmoid() }  // :contentReference[oaicite:13]{index=13}
+
+  /// Creates a Sigmoid activation layer.
+  public init() {}
+
+  /// Applies sigmoid activation element-wise, squashing to (0, 1).
+  ///
+  /// - Parameter x: Input tensor of any shape.
+  /// - Returns: Output tensor of the same shape with sigmoid applied element-wise.
+  @differentiable(reverse)
+  public func callAsFunction(_ x: Tensor) -> Tensor { x.sigmoid() }
 }
 extension Sigmoid {
   @derivative(of: callAsFunction, wrt: (self, x))
