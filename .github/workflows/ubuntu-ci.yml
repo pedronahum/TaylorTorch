@@ -16,9 +16,6 @@ jobs:
       SWIFT_PLATFORM: ubuntu24.04
       PYTORCH_VERSION: v2.8.0
       PYTORCH_INSTALL_DIR: /opt/pytorch
-      SWIFT_TOOLCHAIN_DIR: /usr
-      CC: clang
-      CXX: clang++
 
     steps:
     - name: Checkout repository
@@ -87,36 +84,34 @@ jobs:
           cffi \
           cmake
 
-    - name: Cache Swift toolchain
-      id: cache-swift
+    - name: Cache Swiftly toolchains
+      id: cache-swiftly
       uses: actions/cache@v4
       with:
-        path: /tmp/swift-toolchain
-        key: swift-${{ env.SWIFT_VERSION }}-${{ env.SWIFT_PLATFORM }}
+        path: ~/.swiftly
+        key: swiftly-${{ runner.os }}-${{ env.SWIFT_VERSION }}
 
-    - name: Download and install Swift
-      if: steps.cache-swift.outputs.cache-hit != 'true'
+    - name: Install Swift via Swiftly
       run: |
-        SWIFT_URL=https://download.swift.org/development/ubuntu2404/${SWIFT_VERSION}/${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz
-        wget -q $SWIFT_URL
-        mkdir -p /tmp/swift-toolchain
-        tar xzf ${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz -C /tmp/swift-toolchain --strip-components=1
-        rm ${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz
-
-    - name: Install Swift to system
-      run: |
-        sudo cp -r /tmp/swift-toolchain/* /usr/
-        sudo mkdir -p /usr/lib/swift
-        sudo chmod -R o+r /usr/lib/swift
-        swift --version
-
-    - name: Set up Swift environment variables
-      run: |
-        echo "SWIFT_TOOLCHAIN_DIR=/usr" >> $GITHUB_ENV
-        echo "SWIFTPM_SWIFT_EXEC=/usr/bin/swift" >> $GITHUB_ENV
+        curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes
+        export PATH="$HOME/.swiftly/bin:$PATH"
+        swiftly install ${SWIFT_VERSION} --no-interactive
+        swiftly use ${SWIFT_VERSION}
+        . "$HOME/.swiftly/env"
+        SWIFT_BIN="$(command -v swift)"
+        SWIFT_BIN_DIR="$(dirname "$SWIFT_BIN")"
+        SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
+        SWIFT_TOOLCHAIN_PATH="$(dirname "$SWIFT_TOOLCHAIN_DIR")"
+        echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
+        echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_DIR}/bin/swift" >> $GITHUB_ENV
         echo "PYTORCH_INSTALL_DIR=/opt/pytorch" >> $GITHUB_ENV
         echo "CC=clang" >> $GITHUB_ENV
         echo "CXX=clang++" >> $GITHUB_ENV
+        swift --version
 
     - name: Cache PyTorch build
       id: cache-pytorch

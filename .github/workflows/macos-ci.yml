@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    runs-on: macos-15
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a
@@ -59,45 +59,46 @@ jobs:
           cffi \
           cmake
 
-    - name: Cache Swift toolchain
-      id: cache-swift
+    - name: Cache Swiftly toolchains
+      id: cache-swiftly
       uses: actions/cache@v4
       with:
-        path: ~/Library/Developer/Toolchains/swift-${{ env.SWIFT_VERSION }}.xctoolchain
-        key: swift-${{ env.SWIFT_VERSION }}-macos
+        path: ~/.swiftly
+        key: swiftly-${{ runner.os }}-${{ env.SWIFT_VERSION }}
 
-    - name: Download and install Swift
-      if: steps.cache-swift.outputs.cache-hit != 'true'
+    - name: Install Swift via Swiftly
       run: |
-        SWIFT_URL=https://download.swift.org/development/xcode/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-osx.pkg
-        wget -q $SWIFT_URL -O swift.pkg
-        sudo installer -pkg swift.pkg -target /
-        rm swift.pkg
-
-    
+        curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes
+        export PATH="$HOME/.swiftly/bin:$PATH"
+        swiftly install ${SWIFT_VERSION} --no-interactive
+        swiftly use ${SWIFT_VERSION}
+        . "$HOME/.swiftly/env"
+        SWIFT_BIN="$(command -v swift)"
+        SWIFT_BIN_DIR="$(dirname "$SWIFT_BIN")"
+        SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
+        SWIFT_TOOLCHAIN_PATH="$(dirname "$SWIFT_TOOLCHAIN_DIR")"
+        echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
+        echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_DIR}/bin/swift" >> $GITHUB_ENV
+        swift --version
 
     - name: Select Swift toolchain
       run: |
-        # Search for the toolchain in both user and system locations
-        if [ -d ~/Library/Developer/Toolchains ]; then
-          SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
-        fi
-
-        if [ -z "$SWIFT_TOOLCHAIN_PATH" ] && [ -d /Library/Developer/Toolchains ]; then
-          SWIFT_TOOLCHAIN_PATH=$(find /Library/Developer/Toolchains -name "${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
-        fi
-
-        # Fallback to direct path
+        SWIFT_TOOLCHAIN_PATH="${SWIFT_TOOLCHAIN_PATH:-}"
         if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
-          SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain"
+          if command -v swiftly >/dev/null 2>&1; then
+            SWIFT_TOOLCHAIN_PATH="$(swiftly path ${SWIFT_VERSION})"
+          fi
         fi
-
-        # Verify the toolchain exists
+        if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
+          echo "Error: Swift toolchain path not resolved"
+          exit 1
+        fi
         if [ ! -d "$SWIFT_TOOLCHAIN_PATH" ]; then
           echo "Error: Swift toolchain not found at $SWIFT_TOOLCHAIN_PATH"
-          echo "Searching for toolchains..."
-          find /Library/Developer/Toolchains -name "*.xctoolchain" -type d 2>/dev/null || true
-          [ -d ~/Library/Developer/Toolchains ] && find ~/Library/Developer/Toolchains -name "*.xctoolchain" -type d || true
           exit 1
         fi
 

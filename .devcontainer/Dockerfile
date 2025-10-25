@@ -69,12 +69,21 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     cffi \
     cmake
 
-# Download and install Swift main snapshot
-RUN SWIFT_URL=https://download.swift.org/development/ubuntu2404/${SWIFT_BRANCH}/${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz \
-    && wget -q $SWIFT_URL \
-    && tar xzf ${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz -C / --strip-components=1 \
-    && rm ${SWIFT_VERSION}-${SWIFT_PLATFORM}.tar.gz \
-    && chmod -R o+r /usr/lib/swift
+# Install Swift via Swiftly
+RUN curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash -s -- --yes \
+    && export PATH="/root/.swiftly/bin:$PATH" \
+    && swiftly install ${SWIFT_BRANCH:-${SWIFT_VERSION}} --no-interactive \
+    && swiftly use ${SWIFT_BRANCH:-${SWIFT_VERSION}} \
+    && . "/root/.swiftly/env" \
+    && swift --version
+
+# Configure Swift environment
+ENV SWIFTLY_HOME=/root/.swiftly
+ENV PATH="${SWIFTLY_HOME}/bin:${SWIFTLY_HOME}/toolchains/current/usr/bin:${PATH}"
+ENV SWIFT_TOOLCHAIN_PATH=${SWIFTLY_HOME}/toolchains/current
+ENV SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}
+ENV SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr
+ENV SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_DIR}/bin/swift
 
 # Set up all environment variables early (before building PyTorch)
 ENV PATH="/usr/bin:${PATH}"
@@ -242,13 +251,16 @@ WORKDIR /workspace
 USER vscode
 
 # Set up shell for the user with all necessary environment variables
-RUN echo 'export CC=clang' >> ~/.bashrc && \
-    echo 'export CXX=clang++' >> ~/.bashrc && \
-    echo 'export PATH=/usr/bin:$PATH' >> ~/.bashrc && \
-    echo 'export PYTORCH_INSTALL_DIR=/opt/pytorch' >> ~/.bashrc && \
-    echo 'export SWIFT_TOOLCHAIN_DIR=/usr' >> ~/.bashrc && \
-    echo 'export SWIFTPM_SWIFT_EXEC=/usr/bin/swift' >> ~/.bashrc && \
-    echo 'export LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+RUN cat <<'EOF' >> ~/.bashrc
+export CC=clang
+export CXX=clang++
+export PYTORCH_INSTALL_DIR=/opt/pytorch
+export SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}
+export SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}
+export SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN}
+export SWIFTPM_SWIFT_EXEC=${SWIFTPM_SWIFT_EXEC}
+export LD_LIBRARY_PATH=/opt/pytorch/lib:$LD_LIBRARY_PATH
+EOF
 
 # Default command
 CMD ["/bin/bash"]
