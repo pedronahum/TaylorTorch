@@ -103,16 +103,16 @@ jobs:
         swiftly use ${SWIFT_VERSION}
         . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
         rm -rf swiftly swiftly-$(uname -m).tar.gz
-        SWIFT_BIN="$(command -v swift)"
-        SWIFT_BIN_DIR="$(dirname "$SWIFT_BIN")"
-        SWIFT_TOOLCHAIN_DIR="$(dirname "$SWIFT_BIN_DIR")"
-        SWIFT_TOOLCHAIN_PATH="$(dirname "$SWIFT_TOOLCHAIN_DIR")"
+        SWIFT_TOOLCHAIN_PATH="$(swiftly path ${SWIFT_VERSION})"
+        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
+        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
+        SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
         echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
         echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
-        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_TOOLCHAIN_DIR}/bin/swift" >> $GITHUB_ENV
+        echo "SWIFTPM_SWIFT_EXEC=${SWIFT_BIN}" >> $GITHUB_ENV
         echo "PYTORCH_INSTALL_DIR=/opt/pytorch" >> $GITHUB_ENV
         echo "CC=clang" >> $GITHUB_ENV
         echo "CXX=clang++" >> $GITHUB_ENV
