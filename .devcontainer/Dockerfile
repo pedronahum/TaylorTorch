@@ -154,21 +154,27 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
     LIBCXX_INCLUDE_DIR="" && \
-    for candidate in "${LLVM_BASE_DIR}/lib/swift/clang/include" \
-                     "${LLVM_BASE_DIR}/include" \
-                     "${LLVM_BASE_DIR}/include/c++/v1" \
-                     "/usr/include/c++/v1" \
-                     "/usr/lib/llvm-18/include/c++/v1" \
-                     "/usr/lib/swift/clang/include/c++/v1"; do \
-        if [ -f "${candidate}/cstddef" ] || [ -f "${candidate}/c++/v1/cstddef" ]; then \
-            if [ -f "${candidate}/cstddef" ]; then \
-                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
-            else \
-                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}/c++/v1")"; \
+    PREFERRED_LIBCXX="${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" && \
+    if [ -d "${PREFERRED_LIBCXX}" ]; then \
+        LIBCXX_INCLUDE_DIR="$(realpath "${PREFERRED_LIBCXX}")"; \
+    else \
+        for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include" \
+                         "${LLVM_BASE_DIR}/lib/swift/clang/include" \
+                         "${LLVM_BASE_DIR}/include" \
+                         "${LLVM_BASE_DIR}/include/c++/v1" \
+                         "/usr/include/c++/v1" \
+                         "/usr/lib/llvm-18/include/c++/v1" \
+                         "/usr/lib/swift/clang/include/c++/v1"; do \
+            if [ -f "${candidate}/cstddef" ] || [ -f "${candidate}/c++/v1/cstddef" ]; then \
+                if [ -f "${candidate}/cstddef" ]; then \
+                    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
+                else \
+                    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}/c++/v1")"; \
+                fi; \
+                break; \
             fi; \
-            break; \
-        fi; \
-    done && \
+        done; \
+    fi && \
     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
         echo "ERROR: Unable to locate libc++ headers (missing cstddef)."; \
         find "${LLVM_BASE_DIR}" -maxdepth 5 -path "*c++/v1/cstddef" 2>/dev/null | head -20 || true; \
@@ -189,10 +195,10 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
     echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
     export USE_LIBCXX=1 && \
-    export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${CPLUS_INCLUDE_PATH:-}" && \
-    export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${C_INCLUDE_PATH:-}" && \
-    export CXXFLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR} ${CXXFLAGS:-}" && \
-    export LDFLAGS="-L${LIBCXX_LIBRARY_DIR} ${LDFLAGS:-}" && \
+    export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include" && \
+    export C_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include" && \
+    export CXXFLAGS="-nostdinc++ -stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" && \
+    export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}" && \
     if [ -n "$LIBRARY_PATH" ]; then \
       export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
     else \

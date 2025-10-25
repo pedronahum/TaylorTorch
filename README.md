@@ -1,5 +1,8 @@
 <img src="assets/TaylorTorch_logo_horizontal_dark_v4.png" alt="TaylorTorch" width="1000">
 
+[![macOS CI](https://github.com/pedronahum/TaylorTorch/actions/workflows/macos-ci.yml/badge.svg)](https://github.com/pedronahum/TaylorTorch/actions/workflows/macos-ci.yml)
+[![Ubuntu CI](https://github.com/pedronahum/TaylorTorch/actions/workflows/ubuntu-ci.yml/badge.svg)](https://github.com/pedronahum/TaylorTorch/actions/workflows/ubuntu-ci.yml)
+
 # Introduction
 TaylorTorch is a modern Swift wrapper for LibTorch, designed to bring the elegance of Swift to the power of PyTorch's C++ backend. It is built from the ground up to feel idiomatic to Swift developers and to leverage the language's first-class automatic differentiation capabilities for seamless gradient computation. By embracing a protocol-oriented design, TaylorTorch provides a flexible “front-to-back” experience so you can compose complex models in pure Swift.
 
