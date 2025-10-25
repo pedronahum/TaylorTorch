@@ -99,7 +99,7 @@ jobs:
         ./swiftly init --quiet-shell-followup
         . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
         hash -r
-        swiftly install ${SWIFT_VERSION} --no-interactive
+        swiftly install ${SWIFT_VERSION} --assume-yes
         swiftly use ${SWIFT_VERSION}
         . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
         rm -rf swiftly swiftly-$(uname -m).tar.gz

@@ -77,7 +77,7 @@ RUN curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz 
     && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
     && hash -r \
     && export PATH="/root/.swiftly/bin:$PATH" \
-    && swiftly install ${SWIFT_BRANCH:-${SWIFT_VERSION}} --no-interactive \
+    && swiftly install ${SWIFT_BRANCH:-${SWIFT_VERSION}} --assume-yes \
     && swiftly use ${SWIFT_BRANCH:-${SWIFT_VERSION}} \
     && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
     && swift --version \
