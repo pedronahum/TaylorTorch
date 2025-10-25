@@ -206,6 +206,7 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
       OPENMP_C_FLAGS="${OPENMP_C_FLAGS} -I${OMP_INCLUDE_DIR}"; \
       OPENMP_CXX_FLAGS="${OPENMP_CXX_FLAGS} -I${OMP_INCLUDE_DIR}"; \
     fi && \
+    CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR}" && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
@@ -214,7 +215,7 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
       -DCMAKE_CXX_COMPILER=clang++ \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_CXX_EXTENSIONS=OFF \
-      -DCMAKE_CXX_FLAGS="-stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" \
+      -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
       -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
       -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
       -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
