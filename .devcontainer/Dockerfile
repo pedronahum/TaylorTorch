@@ -154,38 +154,33 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
     LIBCXX_INCLUDE_DIR="" && \
-    PREFERRED_LIBCXX="${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" && \
-    if [ -d "${PREFERRED_LIBCXX}" ]; then \
-        LIBCXX_INCLUDE_DIR="$(realpath "${PREFERRED_LIBCXX}")"; \
-    else \
-        for candidate in "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
-                         "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
-                         "${LLVM_BASE_DIR}/lib/swift/clang/include/c++/v1" \
-                         "${LLVM_BASE_DIR}/include/c++/v1" \
-                         "/usr/include/c++/v1" \
-                         "/usr/lib/llvm-18/include/c++/v1" \
-                         "/usr/lib/swift/clang/include/c++/v1"; do \
-            if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
-                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
-                break; \
-            fi; \
-        done; \
-    fi && \
+    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"; do \
+        if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
+            LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
+            echo "✓ Found Swift's libc++ at ${LIBCXX_INCLUDE_DIR}"; \
+            break; \
+        fi; \
+    done && \
     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
-        echo "ERROR: Unable to locate libc++ headers (missing cstddef)."; \
-        find "${LLVM_BASE_DIR}" -maxdepth 5 -path "*c++/v1/cstddef" 2>/dev/null | head -20 || true; \
+        echo "ERROR: Unable to locate Swift toolchain's libc++ headers."; \
+        echo "Searched in:"; \
+        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1"; \
+        echo "  ${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"; \
         exit 1; \
     fi && \
     LIBCXX_LIBRARY_DIR="" && \
-    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" "${SWIFT_TOOLCHAIN_DIR}/lib" "${LLVM_BASE_DIR}/lib" "/usr/lib/llvm-18/lib" "/usr/lib/swift/clang/lib" "/usr/lib/x86_64-linux-gnu" "/usr/lib"; do \
+    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" "${SWIFT_TOOLCHAIN_DIR}/lib"; do \
         if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
             LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"; \
+            echo "✓ Found Swift's libc++ library at ${LIBCXX_LIBRARY_DIR}"; \
             break; \
         fi; \
     done && \
     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
-        echo "ERROR: Unable to locate libc++ libraries."; \
-        find "${LLVM_BASE_DIR}" -name "libc++.so*" 2>/dev/null | head -20 || true; \
+        echo "ERROR: Unable to locate Swift toolchain's libc++ libraries."; \
+        echo "Searched in:"; \
+        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux"; \
+        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib"; \
         exit 1; \
     fi && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
@@ -206,13 +201,15 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
       OPENMP_C_FLAGS="${OPENMP_C_FLAGS} -I${OMP_INCLUDE_DIR}"; \
       OPENMP_CXX_FLAGS="${OPENMP_CXX_FLAGS} -I${OMP_INCLUDE_DIR}"; \
     fi && \
-    CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR}" && \
+    CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR} --no-system-header-prefix=/usr/lib/llvm" && \
+    SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
+    SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
-    CC=clang CXX=clang++ cmake .. \
-      -DCMAKE_C_COMPILER=clang \
-      -DCMAKE_CXX_COMPILER=clang++ \
+    CC="${SWIFT_CLANG}" CXX="${SWIFT_CLANGXX}" cmake .. \
+      -DCMAKE_C_COMPILER="${SWIFT_CLANG}" \
+      -DCMAKE_CXX_COMPILER="${SWIFT_CLANGXX}" \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_CXX_EXTENSIONS=OFF \
       -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
