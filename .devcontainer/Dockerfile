@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y \
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
+    clang-18 \
     git \
     libgoogle-glog-dev \
     libgtest-dev \
@@ -115,7 +116,7 @@ RUN git clone --recursive https://github.com/pytorch/pytorch.git && \
     git submodule sync && \
     git submodule update --init --recursive
 
-# Verify and locate OpenMP installation
+# Build PyTorch with smart libc++ detection (matches ubuntu-ci.yml)
 RUN echo "Checking for OpenMP headers and libraries..." && \
     CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
@@ -137,8 +138,6 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
     fi && \
     LLVM_BASE_DIR="$(realpath ${CLANG_RESOURCE_DIR}/../../..)" && \
     echo "LLVM base dir: ${LLVM_BASE_DIR}" && \
-    OMP_INCLUDE_DIR="$(realpath "${OMP_INCLUDE_DIR}")" && \
-    OMP_LIBRARY="" && \
     for candidate in "${LLVM_BASE_DIR}/lib/libomp.so" "/usr/lib/llvm-18/lib/libomp.so" "/usr/lib/x86_64-linux-gnu/libomp.so" "/usr/lib/x86_64-linux-gnu/libomp.so.5"; do \
         if [ -f "${candidate}" ]; then \
             OMP_LIBRARY="${candidate}"; \
@@ -150,72 +149,127 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
         echo "✗ libomp.so not found - searching..."; \
         find /usr -name "libomp.so*" 2>/dev/null | grep -v android || (echo "libomp.so not found!" && exit 1); \
     fi && \
+    OMP_INCLUDE_DIR="$(realpath "${OMP_INCLUDE_DIR}")" && \
     OMP_LIBRARY="$(realpath "${OMP_LIBRARY}")" && \
     echo "Using OpenMP include: ${OMP_INCLUDE_DIR}" && \
     echo "Using OpenMP library: ${OMP_LIBRARY}" && \
     LIBCXX_INCLUDE_DIR="" && \
-    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"; do \
+    LIBCXX_SOURCE="unknown" && \
+    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
+                     "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
+                     "${SWIFT_TOOLCHAIN_DIR}/lib/swift_static/clang/include/c++/v1" \
+                     "${CLANG_RESOURCE_DIR}/../../../include/c++/v1"; do \
         if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
             LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
-            echo "✓ Found Swift's libc++ at ${LIBCXX_INCLUDE_DIR}"; \
+            LIBCXX_SOURCE="Swift toolchain"; \
+            echo "✓ Found libc++ in Swift toolchain at ${LIBCXX_INCLUDE_DIR}"; \
             break; \
         fi; \
     done && \
     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
-        echo "ERROR: Unable to locate Swift toolchain's libc++ headers."; \
-        echo "Searched in:"; \
-        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1"; \
-        echo "  ${SWIFT_TOOLCHAIN_DIR}/include/c++/v1"; \
+        echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 18"; \
+        for candidate in "/usr/lib/llvm-18/include/c++/v1" "/usr/include/c++/v1"; do \
+            if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
+                LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"; \
+                LIBCXX_SOURCE="system LLVM 18"; \
+                echo "✓ Found libc++ in system at ${LIBCXX_INCLUDE_DIR}"; \
+                break; \
+            fi; \
+        done; \
+    fi && \
+    if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
+        echo "ERROR: Unable to locate libc++ headers."; \
+        echo "Please ensure libc++-18-dev is installed."; \
         exit 1; \
     fi && \
     LIBCXX_LIBRARY_DIR="" && \
-    for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" "${SWIFT_TOOLCHAIN_DIR}/lib"; do \
-        if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
-            LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"; \
-            echo "✓ Found Swift's libc++ library at ${LIBCXX_LIBRARY_DIR}"; \
-            break; \
-        fi; \
-    done && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+        for candidate in "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" "${SWIFT_TOOLCHAIN_DIR}/lib"; do \
+            if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
+                LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"; \
+                echo "✓ Found libc++ library in Swift toolchain at ${LIBCXX_LIBRARY_DIR}"; \
+                break; \
+            fi; \
+        done; \
+    fi && \
     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
-        echo "ERROR: Unable to locate Swift toolchain's libc++ libraries."; \
-        echo "Searched in:"; \
-        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux"; \
-        echo "  ${SWIFT_TOOLCHAIN_DIR}/lib"; \
+        for candidate in "/usr/lib/llvm-18/lib" "/usr/lib/x86_64-linux-gnu" "/usr/lib"; do \
+            if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
+                LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"; \
+                echo "✓ Found libc++ library at ${LIBCXX_LIBRARY_DIR}"; \
+                break; \
+            fi; \
+        done; \
+    fi && \
+    if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
+        echo "ERROR: Unable to locate libc++ libraries."; \
+        echo "Please ensure libc++-18-dev is installed."; \
         exit 1; \
     fi && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
     echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
     export USE_LIBCXX=1 && \
-    export CPLUS_INCLUDE_PATH="${LIBCXX_INCLUDE_DIR}:${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include" && \
-    export CXXFLAGS="-nostdinc++ -stdlib=libc++ -isystem ${LIBCXX_INCLUDE_DIR}" && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+        export CPLUS_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"; \
+    fi && \
+    export CXXFLAGS="-stdlib=libc++" && \
     export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}" && \
     if [ -n "$LIBRARY_PATH" ]; then \
-      export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
+        export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
     else \
-      export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"; \
+        export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"; \
     fi && \
-    RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")" && \
     OPENMP_C_FLAGS="-fopenmp=libomp" && \
     OPENMP_CXX_FLAGS="-fopenmp=libomp" && \
-    if [ -n "${OMP_INCLUDE_DIR}" ] && [ "${OMP_INCLUDE_DIR}" != "${RESOURCE_INCLUDE}" ]; then \
-      OPENMP_C_FLAGS="${OPENMP_C_FLAGS} -I${OMP_INCLUDE_DIR}"; \
-      OPENMP_CXX_FLAGS="${OPENMP_CXX_FLAGS} -I${OMP_INCLUDE_DIR}"; \
+    RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")" && \
+    if [ -n "$OMP_INCLUDE_DIR" ] && [ "$OMP_INCLUDE_DIR" != "$RESOURCE_INCLUDE" ]; then \
+        OPENMP_C_FLAGS="$OPENMP_C_FLAGS -I${OMP_INCLUDE_DIR}"; \
+        OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -I${OMP_INCLUDE_DIR}"; \
     fi && \
-    CMAKE_CXX_FLAGS="-stdlib=libc++ -nostdinc++ -isystem ${RESOURCE_INCLUDE} -isystem ${LIBCXX_INCLUDE_DIR} --no-system-header-prefix=/usr/lib/llvm" && \
-    SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
-    SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+        BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang"; \
+        BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"; \
+        BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"; \
+        echo "✓ Using Swift's clang for PyTorch build"; \
+    else \
+        if [ -f "/usr/lib/llvm-18/bin/clang" ] && [ -f "/usr/lib/llvm-18/bin/clang++" ]; then \
+            BUILD_CC="/usr/lib/llvm-18/bin/clang"; \
+            BUILD_CXX="/usr/lib/llvm-18/bin/clang++"; \
+            BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-18/lib/clang/18/include"; \
+            echo "✓ Using system clang-18 for PyTorch build (matches libc++ 18)"; \
+        else \
+            echo "⚠ System clang-18 not found, falling back to Swift's clang"; \
+            BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang"; \
+            BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"; \
+            BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"; \
+        fi; \
+    fi && \
+    CMAKE_CXX_FLAGS="-stdlib=libc++" && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+        CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"; \
+    else \
+        CMAKE_PREFIX_PATH="/usr/lib/llvm-18;/usr"; \
+    fi && \
+    echo "=== Build Configuration ===" && \
+    echo "Compiler: ${BUILD_CC}" && \
+    echo "C++ Compiler: ${BUILD_CXX}" && \
+    echo "libc++ Source: ${LIBCXX_SOURCE}" && \
+    echo "libc++ Include: ${LIBCXX_INCLUDE_DIR}" && \
+    echo "libc++ Library: ${LIBCXX_LIBRARY_DIR}" && \
+    echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}" && \
+    echo "===========================" && \
     cd pytorch && \
     mkdir -p build && \
     cd build && \
-    CC="${SWIFT_CLANG}" CXX="${SWIFT_CLANGXX}" cmake .. \
-      -DCMAKE_C_COMPILER="${SWIFT_CLANG}" \
-      -DCMAKE_CXX_COMPILER="${SWIFT_CLANGXX}" \
+    CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
+      -DCMAKE_C_COMPILER="${BUILD_CC}" \
+      -DCMAKE_CXX_COMPILER="${BUILD_CXX}" \
       -DCMAKE_CXX_STANDARD=17 \
       -DCMAKE_CXX_EXTENSIONS=OFF \
       -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
-      -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
-      -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR}" \
-      -DCMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr" \
+      -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+      -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+      -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
       -DUSE_LIBCXX=ON \
       -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
       -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
@@ -230,11 +284,11 @@ RUN echo "Checking for OpenMP headers and libraries..." && \
       -DBUILD_CAFFE2=OFF \
       -DUSE_DISTRIBUTED=OFF \
       -DUSE_MPS=OFF \
+      -DUSE_CUDA=OFF \
       -DUSE_MKLDNN=OFF \
       -DUSE_XNNPACK=OFF \
       -DUSE_QNNPACK=OFF \
       -DUSE_FBGEMM=OFF \
-      -DUSE_CUDA=OFF \
       -DPYTHON_EXECUTABLE=$(which python3) \
       -GNinja && \
     cmake --build . --target install -j$(nproc)

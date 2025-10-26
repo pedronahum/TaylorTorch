@@ -98,8 +98,9 @@ let commonLinkerSettings: [LinkerSetting] = [
 // Platform-specific linker settings for Linux
 #if os(Linux)
   let platformLinkerSettings: [LinkerSetting] = [
-    // Use libc++ (matching PyTorch build)
-    .unsafeFlags(["-Xlinker", "-stdlib=libc++"]),
+    // Prevent default C++ library linking (which would be libstdc++)
+    .unsafeFlags(["-nostdlib++"]),
+    // Then explicitly link libc++ libraries
     .linkedLibrary("c++"),
     .linkedLibrary("c++abi"),
     // Math library (for sqrt, log10, ceil, etc.)

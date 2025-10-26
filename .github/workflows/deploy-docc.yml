@@ -56,13 +56,25 @@ jobs:
         curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
         installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
 
-        # Initialize Swiftly
-        ~/.swiftly/bin/swiftly init --quiet-shell-followup
+        # Initialize Swiftly (skip automatic install to avoid conflicts with cache)
+        ~/.swiftly/bin/swiftly init --skip-install --quiet-shell-followup
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
 
-        # Install the specific Swift version (Swiftly handles "already installed" case)
-        swiftly install ${SWIFT_VERSION} --assume-yes --use
+        # Install the specific Swift version (will skip if already installed)
+        swiftly install ${SWIFT_VERSION} --assume-yes --use || {
+          echo "⚠️  Swiftly install had issues, trying to use existing installation..."
+          swiftly use ${SWIFT_VERSION} || {
+            echo "❌ Cannot use ${SWIFT_VERSION}, listing available toolchains:"
+            swiftly list
+            # Try to use the snapshot by short name
+            swiftly use main-snapshot-2025-10-02 --assume-yes || {
+              echo "❌ Failed to activate Swift toolchain"
+              exit 1
+            }
+          }
+        }
+
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
 
