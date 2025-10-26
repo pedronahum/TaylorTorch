@@ -98,9 +98,9 @@ let commonLinkerSettings: [LinkerSetting] = [
 // Platform-specific linker settings for Linux
 #if os(Linux)
   let platformLinkerSettings: [LinkerSetting] = [
-    // Prevent default C++ library linking (which would be libstdc++)
-    .unsafeFlags(["-nostdlib++"]),
-    // Then explicitly link libc++ libraries
+    // Tell clang++ to use libc++ for linking (not -Xlinker wrapped)
+    .unsafeFlags(["-stdlib=libc++"]),
+    // Explicitly link libc++ libraries
     .linkedLibrary("c++"),
     .linkedLibrary("c++abi"),
     // Math library (for sqrt, log10, ceil, etc.)

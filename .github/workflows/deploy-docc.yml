@@ -1,13 +1,12 @@
 name: Deploy DocC Documentation
 
 on:
-  push:
+  workflow_run:
+    workflows: ["macOS CI"]
+    types:
+      - completed
     branches:
       - main
-    paths:
-      - 'Sources/**/*.swift'
-      - 'Sources/**/*.md'
-      - '.github/workflows/deploy-docc.yml'
   workflow_dispatch:  # Allow manual trigger
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -25,6 +24,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15  # macOS 15 required for Swift 6.x
+    # Only run if macOS CI succeeded (or if manually triggered)
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a  # Same as macos-ci.yml
@@ -40,14 +41,16 @@ jobs:
         brew update
         brew install gnu-getopt
 
-    - name: Cache Swiftly toolchains
-      id: cache-swiftly
+    - name: Cache Swift toolchain
+      id: cache-swift
       uses: actions/cache@v4
       with:
-        path: ~/.swiftly
-        key: swiftly-${{ runner.os }}-${{ env.SWIFT_VERSION }}
+        path: |
+          ~/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain
+        key: swift-toolchain-${{ runner.os }}-${{ env.SWIFT_VERSION }}
 
     - name: Install Swift via Swiftly
+      if: steps.cache-swift.outputs.cache-hit != 'true'
       run: |
         # Add gnu-getopt to PATH (required by Swiftly)
         export PATH="$(brew --prefix gnu-getopt)/bin:$PATH"
@@ -56,46 +59,47 @@ jobs:
         curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
         installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
 
-        # Initialize Swiftly (skip automatic install to avoid conflicts with cache)
-        ~/.swiftly/bin/swiftly init --skip-install --quiet-shell-followup
+        # Initialize Swiftly
+        ~/.swiftly/bin/swiftly init --quiet-shell-followup
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
 
-        # Install the specific Swift version (will skip if already installed)
-        swiftly install ${SWIFT_VERSION} --assume-yes --use || {
-          echo "⚠️  Swiftly install had issues, trying to use existing installation..."
-          swiftly use ${SWIFT_VERSION} || {
-            echo "❌ Cannot use ${SWIFT_VERSION}, listing available toolchains:"
-            swiftly list
-            # Try to use the snapshot by short name
-            swiftly use main-snapshot-2025-10-02 --assume-yes || {
-              echo "❌ Failed to activate Swift toolchain"
-              exit 1
-            }
-          }
-        }
-
+        # Install the specific Swift version
+        swiftly install ${SWIFT_VERSION} --assume-yes --use
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
 
         # Clean up installer
         rm swiftly.pkg
 
-        # Get the actual toolchain path from Swiftly
-        SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)"
+        echo "✅ Swift ${SWIFT_VERSION} installed successfully"
+        swift --version
+
+    - name: Set up Swift environment
+      run: |
+        # Set the toolchain path
+        SWIFT_TOOLCHAIN_PATH="$HOME/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain"
+
+        if [ ! -d "$SWIFT_TOOLCHAIN_PATH" ]; then
+          echo "❌ Error: Swift toolchain not found at $SWIFT_TOOLCHAIN_PATH"
+          echo "Available toolchains:"
+          ls -la "$HOME/Library/Developer/Toolchains/" || echo "No toolchains directory"
+          exit 1
+        fi
+
         SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
         SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
         SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
 
         # Add to PATH and environment
-        echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
-        echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
+        echo "${SWIFT_BIN_DIR}" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFTPM_SWIFT_EXEC=${SWIFT_BIN}" >> $GITHUB_ENV
 
         # Verify Swift version
-        swift --version
+        echo "✅ Swift environment configured:"
+        "${SWIFT_BIN}" --version
 
     - name: Cache Swift dependencies
       uses: actions/cache@v3

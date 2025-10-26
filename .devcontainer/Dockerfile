@@ -71,15 +71,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     cffi \
     cmake
 
-# Install Swift via Swiftly
+# Install Swift via Swiftly (using bash for compatibility)
+SHELL ["/bin/bash", "-c"]
 RUN curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz \
     && tar zxf swiftly-$(uname -m).tar.gz \
-    && ./swiftly init --quiet-shell-followup \
-    && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
+    && ./swiftly init --skip-install --quiet-shell-followup \
+    && source "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
     && hash -r \
-    && export PATH="/root/.swiftly/bin:$PATH" \
     && swiftly install ${SWIFT_BRANCH:-${SWIFT_VERSION}} --assume-yes --use \
-    && . "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
+    && source "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/env.sh" \
     && hash -r \
     && SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)" \
     && mkdir -p "${SWIFTLY_HOME_DIR:-/root/.local/share/swiftly}/toolchains" \
@@ -117,6 +117,7 @@ RUN git clone --recursive https://github.com/pytorch/pytorch.git && \
     git submodule update --init --recursive
 
 # Build PyTorch with smart libc++ detection (matches ubuntu-ci.yml)
+# Continue using bash for complex shell operations
 RUN echo "Checking for OpenMP headers and libraries..." && \
     CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
