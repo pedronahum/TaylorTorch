@@ -60,14 +60,16 @@ jobs:
           cffi \
           cmake
 
-    - name: Cache Swiftly toolchains
-      id: cache-swiftly
+    - name: Cache Swift toolchain
+      id: cache-swift
       uses: actions/cache@v4
       with:
-        path: ~/.swiftly
-        key: swiftly-${{ runner.os }}-${{ env.SWIFT_VERSION }}
+        path: |
+          ~/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain
+        key: swift-toolchain-${{ runner.os }}-${{ env.SWIFT_VERSION }}
 
     - name: Install Swift via Swiftly
+      if: steps.cache-swift.outputs.cache-hit != 'true'
       run: |
         export PATH="$(brew --prefix gnu-getopt)/bin:$PATH"
         curl -O https://download.swift.org/swiftly/darwin/swiftly.pkg
@@ -79,17 +81,35 @@ jobs:
         . "${SWIFTLY_HOME_DIR:-$HOME/.swiftly}/env.sh"
         hash -r
         rm swiftly.pkg
-        SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)"
+        echo "✅ Swift ${SWIFT_VERSION} installed successfully"
+        swift --version
+
+    - name: Set up Swift environment
+      run: |
+        # Set the toolchain path
+        SWIFT_TOOLCHAIN_PATH="$HOME/Library/Developer/Toolchains/${SWIFT_VERSION}.xctoolchain"
+
+        if [ ! -d "$SWIFT_TOOLCHAIN_PATH" ]; then
+          echo "❌ Error: Swift toolchain not found at $SWIFT_TOOLCHAIN_PATH"
+          echo "Available toolchains:"
+          ls -la "$HOME/Library/Developer/Toolchains/" || echo "No toolchains directory"
+          exit 1
+        fi
+
         SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
         SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
         SWIFT_BIN="${SWIFT_BIN_DIR}/swift"
-        echo "$HOME/.swiftly/bin" >> $GITHUB_PATH
-        echo "$SWIFT_BIN_DIR" >> $GITHUB_PATH
+
+        # Add to PATH and environment
+        echo "${SWIFT_BIN_DIR}" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "SWIFTPM_SWIFT_EXEC=${SWIFT_BIN}" >> $GITHUB_ENV
-        swift --version
+
+        # Verify Swift version
+        echo "✅ Swift environment configured:"
+        "${SWIFT_BIN}" --version
 
     - name: Select Swift toolchain
       run: |
