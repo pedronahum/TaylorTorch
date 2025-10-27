@@ -82,6 +82,20 @@ if let cStandardLibraryModuleMap {
     commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
 }
 
+// On Linux, use --whole-archive to force inclusion of all PyTorch operator symbols
+// These symbols are in static registration sections that get optimized out without this flag
+#if os(Linux)
+let commonLinkerSettings: [LinkerSetting] = [
+    .unsafeFlags(["-L", pytorchLibDir]),
+    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
+    // Use --whole-archive for PyTorch libraries to include all operator registrations
+    .unsafeFlags(["-Xlinker", "--whole-archive"]),
+    .linkedLibrary("torch_cpu"),
+    .linkedLibrary("torch"),
+    .unsafeFlags(["-Xlinker", "--no-whole-archive"]),
+    .linkedLibrary("c10"),
+]
+#else
 let commonLinkerSettings: [LinkerSetting] = [
     .unsafeFlags(["-L", pytorchLibDir]),
     .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
@@ -89,6 +103,7 @@ let commonLinkerSettings: [LinkerSetting] = [
     .linkedLibrary("torch"),
     .linkedLibrary("c10"),
 ]
+#endif
 
 // Platform-specific linker settings for Linux
 #if os(Linux)
