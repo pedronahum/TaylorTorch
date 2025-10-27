@@ -30,6 +30,7 @@ jobs:
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a  # Same as macos-ci.yml
       PYTORCH_VERSION: v2.8.0  # Same as macos-ci.yml
+      PYTORCH_INSTALL_DIR: ${{ github.workspace }}/pytorch-install  # Same as macos-ci.yml
 
     steps:
     - name: Checkout repository
@@ -46,20 +47,18 @@ jobs:
       id: cache-pytorch
       uses: actions/cache@v4
       with:
-        path: ~/programming/pytorch/install
+        path: ${{ github.workspace }}/pytorch-install
         key: pytorch-${{ env.PYTORCH_VERSION }}-macos-clang-${{ hashFiles('.github/workflows/macos-ci.yml') }}
 
     - name: Set up PyTorch environment
       run: |
-        # Set PyTorch environment variables
-        PYTORCH_INSTALL_DIR="$HOME/programming/pytorch/install"
-        echo "PYTORCH_INSTALL_DIR=${PYTORCH_INSTALL_DIR}" >> $GITHUB_ENV
-        echo "DYLD_LIBRARY_PATH=${PYTORCH_INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH}" >> $GITHUB_ENV
+        # Set PyTorch library path for runtime
+        echo "DYLD_LIBRARY_PATH=${{ env.PYTORCH_INSTALL_DIR }}/lib:${DYLD_LIBRARY_PATH}" >> $GITHUB_ENV
 
         # Check if PyTorch is available
-        if [ -d "${PYTORCH_INSTALL_DIR}" ]; then
+        if [ -d "${{ env.PYTORCH_INSTALL_DIR }}" ]; then
           echo "✅ PyTorch cache restored from macos-ci"
-          ls -la "${PYTORCH_INSTALL_DIR}/lib" | head -10
+          ls -la "${{ env.PYTORCH_INSTALL_DIR }}/lib" | head -10
         else
           echo "⚠️  PyTorch not cached - documentation build may fail"
           echo "This should not happen if macos-ci ran successfully"
@@ -125,15 +124,37 @@ jobs:
         echo "✅ Swift environment configured:"
         "${SWIFT_BIN}" --version
 
-    - name: Cache Swift dependencies
-      uses: actions/cache@v3
+    - name: Set up macOS SDK and toolchain
+      run: |
+        # Set SDKROOT to point to macOS SDK
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+        echo "SDKROOT=${SDKROOT}" >> $GITHUB_ENV
+
+        # Set TOOLCHAINS environment variable
+        TOOLCHAIN_INFO_PLIST="${SWIFT_TOOLCHAIN_PATH}/Info.plist"
+        if [ -f "$TOOLCHAIN_INFO_PLIST" ]; then
+          TOOLCHAIN_IDENTIFIER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$TOOLCHAIN_INFO_PLIST" 2>/dev/null || echo "")
+          if [ -z "$TOOLCHAIN_IDENTIFIER" ]; then
+            TOOLCHAIN_IDENTIFIER="org.swift.$(echo ${SWIFT_VERSION} | sed 's/swift-DEVELOPMENT-SNAPSHOT-//' | sed 's/-a$//' | tr -d '-')"
+          fi
+        else
+          TOOLCHAIN_IDENTIFIER="swift"
+        fi
+        echo "TOOLCHAINS=${TOOLCHAIN_IDENTIFIER}" >> $GITHUB_ENV
+
+        echo "✅ SDK and toolchain configured:"
+        echo "  SDKROOT: $SDKROOT"
+        echo "  TOOLCHAINS: $TOOLCHAIN_IDENTIFIER"
+
+    - name: Cache Swift build artifacts
+      id: cache-build
+      uses: actions/cache@v4
       with:
-        path: |
-          .build
-          ~/Library/Developer/Xcode/DerivedData
-        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        path: .build
+        key: ${{ runner.os }}-swift-build-${{ env.SWIFT_VERSION }}-${{ env.PYTORCH_VERSION }}-${{ hashFiles('Sources/**/*.swift', 'Sources/**/*.hpp', 'Package.swift') }}
         restore-keys: |
-          ${{ runner.os }}-spm-
+          ${{ runner.os }}-swift-build-${{ env.SWIFT_VERSION }}-${{ env.PYTORCH_VERSION }}-
+          ${{ runner.os }}-swift-build-${{ env.SWIFT_VERSION }}-
 
     - name: Install swift-docc-plugin (if needed)
       run: |

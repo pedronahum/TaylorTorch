@@ -42,7 +42,8 @@ extension Int64: TorchSignedInteger, TorchInteger, TorchRealNumber, TorchArithme
 {
   public static var torchDType: DType { .int64 }
   /// Converts the Swift value into a Torch `c10::Scalar`.
-  public var _cxxScalar: c10.Scalar { c10.Scalar(self) }
+  /// On Linux, Int64 can be ambiguous (long vs long long), so we explicitly cast to CLongLong
+  public var _cxxScalar: c10.Scalar { c10.Scalar(CLongLong(self)) }
 }
 
 /*
@@ -54,7 +55,8 @@ extension Int: TorchSliceIndex { // Note: Removed FixedWidthInteger, it's redund
 
 extension Int: TorchSignedInteger, TorchInteger, TorchRealNumber, TorchArithmetic, TorchSliceIndex {
   public static var torchDType: DType { .int64 }
-  public var _cxxScalar: c10.Scalar { c10.Scalar(Int64(self)) }
+  /// On Linux, Int64 can be ambiguous (long vs long long), so we explicitly cast to CLongLong
+  public var _cxxScalar: c10.Scalar { c10.Scalar(CLongLong(Int64(self))) }
 }
 
 // MARK: - Unsigned integers
