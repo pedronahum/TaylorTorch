@@ -1,5 +1,5 @@
 import _Differentiation
-import Darwin
+import Foundation
 
 /// Adaptive Moment Estimation (Adam) optimizer with optional AdamW weight decay.
 ///
@@ -463,8 +463,8 @@ where
     }
 
     // Bias correction factors:
-    let bc1 = 1 - powf(b1, Float(step))
-    let bc2 = 1 - powf(b2, Float(step))
+    let bc1 = 1 - Foundation.pow(b1, Float(step))
+    let bc2 = 1 - Foundation.pow(b2, Float(step))
 
     // Compute the preconditioned step:  m̂ / (sqrt(v̂) + ε)
     var precond = Model.TangentVector.zero

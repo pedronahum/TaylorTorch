@@ -29,6 +29,7 @@ jobs:
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a  # Same as macos-ci.yml
+      PYTORCH_VERSION: v2.8.0  # Same as macos-ci.yml
 
     steps:
     - name: Checkout repository
@@ -39,7 +40,30 @@ jobs:
     - name: Install Homebrew dependencies
       run: |
         brew update
-        brew install gnu-getopt
+        brew install gnu-getopt cmake ninja libomp
+
+    - name: Cache PyTorch build
+      id: cache-pytorch
+      uses: actions/cache@v4
+      with:
+        path: ~/programming/pytorch/install
+        key: pytorch-${{ env.PYTORCH_VERSION }}-macos-clang-${{ hashFiles('.github/workflows/macos-ci.yml') }}
+
+    - name: Set up PyTorch environment
+      run: |
+        # Set PyTorch environment variables
+        PYTORCH_INSTALL_DIR="$HOME/programming/pytorch/install"
+        echo "PYTORCH_INSTALL_DIR=${PYTORCH_INSTALL_DIR}" >> $GITHUB_ENV
+        echo "DYLD_LIBRARY_PATH=${PYTORCH_INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH}" >> $GITHUB_ENV
+
+        # Check if PyTorch is available
+        if [ -d "${PYTORCH_INSTALL_DIR}" ]; then
+          echo "✅ PyTorch cache restored from macos-ci"
+          ls -la "${PYTORCH_INSTALL_DIR}/lib" | head -10
+        else
+          echo "⚠️  PyTorch not cached - documentation build may fail"
+          echo "This should not happen if macos-ci ran successfully"
+        fi
 
     - name: Cache Swift toolchain
       id: cache-swift
