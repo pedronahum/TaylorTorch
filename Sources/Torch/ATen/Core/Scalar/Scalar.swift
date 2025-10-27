@@ -59,9 +59,8 @@ internal extension Scalar {
         case .int16(let value): return c10.Scalar(value)
         case .int32(let value): return c10.Scalar(value)
         case .int64(let value):
-            // On Linux, Int64 can be ambiguous (long vs long long)
-            // Explicitly cast to CLongLong to avoid ambiguity
-            return c10.Scalar(CLongLong(value))
+            // Use explicit helper to avoid C++ overload ambiguity on Linux
+            return make_scalar_int64(value)
         case .float(let value): return c10.Scalar(value)
         case .double(let value): return c10.Scalar(value)
         case .bool(let value):

@@ -174,15 +174,22 @@ jobs:
         # Create docs output directory
         mkdir -p docs
 
-        # Generate static DocC documentation
-        # Using --allow-writing-to-directory to permit output
+        # Set up PyTorch include paths for symbol extraction
+        PYTORCH_INCLUDE="${PYTORCH_INSTALL_DIR}/include"
+        PYTORCH_API_INCLUDE="${PYTORCH_INSTALL_DIR}/include/torch/csrc/api/include"
+
+        # Generate static DocC documentation with additional symbol graph flags
+        # These flags are passed to swift-symbolgraph-extract to find PyTorch headers
         swift package \
           --allow-writing-to-directory ./docs \
           generate-documentation \
           --target Torch \
           --output-path ./docs \
           --transform-for-static-hosting \
-          --hosting-base-path TaylorTorch
+          --hosting-base-path TaylorTorch \
+          --additional-symbol-graph-flags \
+            -Xcc -I -Xcc "${PYTORCH_INCLUDE}" \
+            -Xcc -I -Xcc "${PYTORCH_API_INCLUDE}"
 
         echo "✅ Documentation generated successfully"
 
