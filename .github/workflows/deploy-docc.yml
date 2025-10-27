@@ -171,26 +171,62 @@ jobs:
 
     - name: Build documentation
       run: |
-        # Create docs output directory
-        mkdir -p docs
+        # Multi-step DocC generation to properly handle C++ dependencies
+        # Step 1: Build the target
+        # Step 2: Extract symbols with correct include paths
+        # Step 3: Convert symbols to documentation
 
-        # Set up PyTorch include paths for symbol extraction
+        # Set up paths
         PYTORCH_INCLUDE="${PYTORCH_INSTALL_DIR}/include"
         PYTORCH_API_INCLUDE="${PYTORCH_INSTALL_DIR}/include/torch/csrc/api/include"
+        SYMBOL_GRAPH_DIR=".build/symbol-graphs"
+        DOCS_DIR="docs"
 
-        # Generate static DocC documentation with additional symbol graph flags
-        # These flags are passed to swift-symbolgraph-extract to find PyTorch headers
-        # Note: Use -I${PATH} format (no space) to match Package.swift compiler flags
-        swift package \
-          --allow-writing-to-directory ./docs \
-          generate-documentation \
-          --target Torch \
-          --output-path ./docs \
+        mkdir -p "${SYMBOL_GRAPH_DIR}"
+        mkdir -p "${DOCS_DIR}"
+
+        # Step 1: Build the Torch target to ensure everything is compiled
+        echo "📦 Step 1: Building Torch target..."
+        swift build --target Torch
+
+        # Step 2: Extract symbol graph with full include paths
+        # Need to include: Swift headers, PyTorch headers, ATenCXX module, and built modules
+        echo "🔍 Step 2: Extracting symbols with PyTorch headers..."
+        BUILD_DIR=".build/arm64-apple-macosx/debug"
+        ATENCXX_INCLUDE="./Sources/ATenCXX/include"
+        SWIFT_INCLUDE="${SWIFT_TOOLCHAIN_DIR}/include"
+        SWIFT_CLANG_INCLUDE="${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"
+
+        swift symbolgraph-extract \
+          -module-name Torch \
+          -target arm64-apple-macosx14.0 \
+          -I "${BUILD_DIR}/Modules" \
+          -Xcc -I"${SWIFT_INCLUDE}" \
+          -Xcc -I"${SWIFT_CLANG_INCLUDE}" \
+          -Xcc -I"${PYTORCH_INCLUDE}" \
+          -Xcc -I"${PYTORCH_API_INCLUDE}" \
+          -Xcc -I"${ATENCXX_INCLUDE}" \
+          -Xcc -fmodule-map-file="${ATENCXX_INCLUDE}/module.modulemap" \
+          -Xcc -std=c++17 \
+          -cxx-interoperability-mode=default \
+          -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
+          -output-dir "${SYMBOL_GRAPH_DIR}" \
+          -minimum-access-level public
+
+        echo "✅ Symbol extraction complete"
+        echo "Generated symbol graphs:"
+        ls -lh "${SYMBOL_GRAPH_DIR}"
+
+        # Step 3: Convert symbol graphs to documentation
+        echo "📚 Step 3: Converting symbols to documentation..."
+        xcrun docc convert \
+          --fallback-display-name Torch \
+          --fallback-bundle-identifier com.github.pedronahum.TaylorTorch \
+          --fallback-bundle-version 1.0.0 \
+          --additional-symbol-graph-dir "${SYMBOL_GRAPH_DIR}" \
           --transform-for-static-hosting \
           --hosting-base-path TaylorTorch \
-          --additional-symbol-graph-flags \
-            -Xcc -I"${PYTORCH_INCLUDE}" \
-            -Xcc -I"${PYTORCH_API_INCLUDE}"
+          --output-path "${DOCS_DIR}"
 
         echo "✅ Documentation generated successfully"
 

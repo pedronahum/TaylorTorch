@@ -12,3 +12,4 @@ DerivedData/
 .clj-kondo/
 .build/
 .cache/
+docs/
