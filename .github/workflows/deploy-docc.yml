@@ -180,6 +180,7 @@ jobs:
 
         # Generate static DocC documentation with additional symbol graph flags
         # These flags are passed to swift-symbolgraph-extract to find PyTorch headers
+        # Note: Use -I${PATH} format (no space) to match Package.swift compiler flags
         swift package \
           --allow-writing-to-directory ./docs \
           generate-documentation \
@@ -188,8 +189,8 @@ jobs:
           --transform-for-static-hosting \
           --hosting-base-path TaylorTorch \
           --additional-symbol-graph-flags \
-            -Xcc -I -Xcc "${PYTORCH_INCLUDE}" \
-            -Xcc -I -Xcc "${PYTORCH_API_INCLUDE}"
+            -Xcc -I"${PYTORCH_INCLUDE}" \
+            -Xcc -I"${PYTORCH_API_INCLUDE}"
 
         echo "✅ Documentation generated successfully"
 

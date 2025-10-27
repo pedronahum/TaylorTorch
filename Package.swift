@@ -85,9 +85,9 @@ if let cStandardLibraryModuleMap {
 let commonLinkerSettings: [LinkerSetting] = [
     .unsafeFlags(["-L", pytorchLibDir]),
     .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
-    .linkedLibrary("c10"),
-    .linkedLibrary("torch"),
     .linkedLibrary("torch_cpu"),
+    .linkedLibrary("torch"),
+    .linkedLibrary("c10"),
 ]
 
 // Platform-specific linker settings for Linux
