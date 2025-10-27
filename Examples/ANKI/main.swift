@@ -311,7 +311,10 @@ do {
     }
   }
 } catch {
-  fputs("ANKI example failed: \(error)\n", stderr)
+  // Use FileHandle.standardError for Swift 6 concurrency safety
+  if let data = "ANKI example failed: \(error)\n".data(using: .utf8) {
+    try? FileHandle.standardError.write(contentsOf: data)
+  }
   exit(EXIT_FAILURE)
 }
 
