@@ -73,19 +73,16 @@ RUN pip3 install --break-system-packages \
     cmake
 
 # Install Swift via Swiftly
-RUN curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz && \
+RUN curl -L -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz && \
     tar zxf swiftly-$(uname -m).tar.gz && \
+    chmod +x swiftly && \
     ./swiftly init --quiet-shell-followup && \
+    export SWIFTLY_BIN_DIR="${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/bin" && \
+    export PATH="$HOME/.swiftly/bin:${SWIFTLY_BIN_DIR}:$PATH" && \
     . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh" && \
-    hash -r && \
-    swiftly install ${SWIFT_VERSION} --assume-yes --use && \
-    . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh" && \
-    hash -r && \
-    rm -rf swiftly swiftly-$(uname -m).tar.gz
-
-# Set up Swift environment variables
-RUN . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh" && \
-    SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)" && \
+    $HOME/.swiftly/bin/swiftly install ${SWIFT_VERSION} --assume-yes --use && \
+    rm -rf swiftly swiftly-$(uname -m).tar.gz && \
+    SWIFT_TOOLCHAIN_PATH="$($HOME/.swiftly/bin/swiftly use --print-location)" && \
     SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr" && \
     SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin" && \
     SWIFT_BIN="${SWIFT_BIN_DIR}/swift" && \
