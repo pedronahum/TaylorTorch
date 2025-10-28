@@ -20,13 +20,17 @@ jobs:
 
     - name: Set up environment
       run: |
-        # Source the PyTorch environment
-        . /etc/profile.d/pytorch.sh
+        # Source the Swift environment
+        . /etc/profile.d/swift.sh
 
         # Export to GitHub Actions environment
-        SWIFT_BIN="$(which swift)"
-        SWIFT_TOOLCHAIN_DIR="$(dirname $(dirname ${SWIFT_BIN}))"
+        echo "/root/.swiftly/bin" >> $GITHUB_PATH
+        SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)"
+        SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr"
+        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
+        echo "${SWIFT_BIN_DIR}" >> $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
+        echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=/opt/pytorch/lib:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
 
     - name: Build TaylorTorch

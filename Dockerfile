@@ -1,24 +1,63 @@
 # TaylorTorch Development Container
 # This container has Swift and PyTorch pre-installed for CI builds
 #
-# Swift Version: Using specific development snapshot for reproducible builds
-# - Current: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a on Ubuntu 22.04 (Jammy)
-# - To update: Find available tags at https://hub.docker.com/r/swiftlang/swift/tags
-# - Tag format: nightly-jammy-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a
-# - Example: nightly-jammy-DEVELOPMENT-SNAPSHOT-2025-10-20-a
-FROM swiftlang/swift:nightly-jammy-DEVELOPMENT-SNAPSHOT-2025-10-02-a
+# Swift Version: Using specific development snapshot via Swiftly
+# - Current: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a on Ubuntu 24.04
+# - To update: Change SWIFT_SNAPSHOT_URL and SWIFT_VERSION below
+# - Find snapshots at: https://www.swift.org/download/
+#
+# Build with default snapshot:
+#   docker build -t taylortorch-dev .
+#
+# Build with custom snapshot:
+#   docker build \
+#     --build-arg SWIFT_SNAPSHOT_URL="https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a-ubuntu24.04.tar.gz" \
+#     --build-arg SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a" \
+#     -t taylortorch-dev .
+FROM ubuntu:24.04
+
+# Swift snapshot configuration
+ARG SWIFT_SNAPSHOT_URL="https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-ubuntu24.04.tar.gz"
+ARG SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a"
 
 # Set environment variables
-ENV SWIFT_VERSION=swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a \
+ENV SWIFT_VERSION=${SWIFT_VERSION} \
     PYTORCH_VERSION=v2.8.0 \
     PYTORCH_INSTALL_DIR=/opt/pytorch \
     DEBIAN_FRONTEND=noninteractive
 
-# Install PyTorch build dependencies
+# Install system dependencies (Swift + PyTorch build deps)
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     clang-18 \
+    curl \
+    git \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-setuptools \
+    python3-yaml \
+    wget \
+    ca-certificates \
+    binutils \
+    gnupg2 \
+    libc6-dev \
+    libcurl4-openssl-dev \
+    libedit2 \
+    libgcc-13-dev \
+    libpython3-dev \
+    libsqlite3-0 \
+    libstdc++-13-dev \
+    libxml2-dev \
+    libz3-dev \
+    pkg-config \
+    tzdata \
+    unzip \
+    zip \
+    zlib1g-dev \
+    libicu-dev \
+    libssl-dev \
     libgoogle-glog-dev \
     libgtest-dev \
     libomp-18-dev \
@@ -31,19 +70,10 @@ RUN apt-get update && apt-get install -y \
     openmpi-bin \
     openmpi-doc \
     protobuf-compiler \
-    python3 \
-    python3-dev \
-    python3-pip \
-    python3-setuptools \
-    python3-yaml \
     libgflags-dev \
     libc++-18-dev \
     libc++abi-18-dev \
     ninja-build \
-    wget \
-    curl \
-    ca-certificates \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages for PyTorch
@@ -55,11 +85,32 @@ RUN pip3 install --break-system-packages \
     cffi \
     cmake
 
-# Set up Swift environment variables
-RUN echo "export PYTORCH_INSTALL_DIR=/opt/pytorch" >> /etc/profile.d/pytorch.sh && \
-    echo "export CC=clang" >> /etc/profile.d/pytorch.sh && \
-    echo "export CXX=clang++" >> /etc/profile.d/pytorch.sh && \
+# Install Swiftly (Swift toolchain manager)
+RUN curl -L https://swift-server.github.io/swiftly/swiftly-install.sh | bash -s -- -y
+ENV PATH="/root/.swiftly/bin:$PATH"
+
+# Download and install the specific Swift snapshot
+RUN echo "Downloading Swift snapshot from $SWIFT_SNAPSHOT_URL" && \
+    curl -f -L -o /tmp/swift-snapshot.tar.gz "$SWIFT_SNAPSHOT_URL" && \
+    echo "Installing Swift snapshot: $SWIFT_VERSION" && \
+    swiftly install --from-file /tmp/swift-snapshot.tar.gz "$SWIFT_VERSION" && \
+    swiftly use "$SWIFT_VERSION" && \
+    rm /tmp/swift-snapshot.tar.gz && \
+    echo "Swift installation complete:" && \
     swift --version
+
+# Set up environment variables for Swift and PyTorch
+RUN SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)" && \
+    SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr" && \
+    SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin" && \
+    echo "export PATH=/root/.swiftly/bin:${SWIFT_BIN_DIR}:\$PATH" >> /etc/profile.d/swift.sh && \
+    echo "export SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> /etc/profile.d/swift.sh && \
+    echo "export SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> /etc/profile.d/swift.sh && \
+    echo "export SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> /etc/profile.d/swift.sh && \
+    echo "export SWIFTPM_SWIFT_EXEC=${SWIFT_BIN_DIR}/swift" >> /etc/profile.d/swift.sh && \
+    echo "export PYTORCH_INSTALL_DIR=/opt/pytorch" >> /etc/profile.d/swift.sh && \
+    echo "export CC=clang" >> /etc/profile.d/swift.sh && \
+    echo "export CXX=clang++" >> /etc/profile.d/swift.sh
 
 # Verify OpenMP installation
 RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
@@ -276,10 +327,10 @@ RUN . /etc/profile.d/pytorch.sh && \
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \
     ldconfig && \
-    echo "export LD_LIBRARY_PATH=/opt/pytorch/lib:\$LD_LIBRARY_PATH" >> /etc/profile.d/pytorch.sh
+    echo "export LD_LIBRARY_PATH=/opt/pytorch/lib:\$LD_LIBRARY_PATH" >> /etc/profile.d/swift.sh
 
 # Verify installations
-RUN . /etc/profile.d/pytorch.sh && swift --version && \
+RUN . /etc/profile.d/swift.sh && swift --version && \
     ls -lh /opt/pytorch/lib/libtorch.so && \
     echo "✅ Swift and PyTorch successfully installed"
 

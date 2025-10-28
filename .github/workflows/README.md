@@ -79,22 +79,22 @@ Required for DocC deployment:
 ## Updating Docker Image
 
 ### To update Swift version:
-1. Find available snapshots at [Docker Hub - swiftlang/swift tags](https://hub.docker.com/r/swiftlang/swift/tags)
-2. Edit `Dockerfile` (line 9) to use specific snapshot:
+1. Find available snapshots at [swift.org downloads](https://www.swift.org/download/)
+2. Edit `Dockerfile` ARG variables (lines 10-11):
    ```dockerfile
-   FROM swiftlang/swift:nightly-jammy-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a
+   ARG SWIFT_SNAPSHOT_URL="https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a/swift-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a-ubuntu24.04.tar.gz"
+   ARG SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a"
    ```
-3. Update `SWIFT_VERSION` env var (line 12) in `Dockerfile` to match
-4. Push to trigger `build-docker.yml`
-5. Wait for new image to be built (~30-45 min)
-6. `ubuntu-ci.yml` will automatically use the updated image
+3. Push to trigger `build-docker.yml`
+4. Wait for new image to be built (~30-45 min)
+5. `ubuntu-ci.yml` will automatically use the updated image
 
-**Available snapshot tag formats:**
-- `nightly-jammy-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Ubuntu 22.04 - current)
-- `nightly-focal-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Ubuntu 20.04)
-- `nightly-amazonlinux2-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Amazon Linux)
+**URL format examples:**
+- Ubuntu 24.04: `https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-ubuntu24.04.tar.gz`
+- Ubuntu 22.04: `https://download.swift.org/development/ubuntu2204/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-ubuntu22.04.tar.gz`
+- Ubuntu 20.04: `https://download.swift.org/development/ubuntu2004/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-ubuntu20.04.tar.gz`
 
-**Current Swift version:** `swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a`
+**Current Swift version:** `swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a` on Ubuntu 24.04
 
 ### To update PyTorch version:
 1. Edit `PYTORCH_VERSION` (line 13) in `Dockerfile`
