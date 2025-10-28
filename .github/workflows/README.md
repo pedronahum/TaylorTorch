@@ -11,10 +11,19 @@ This directory contains CI/CD workflows for TaylorTorch.
 - Tests: Full test suite
 
 ### 2. Ubuntu CI (`ubuntu-ci.yml`)
-**Purpose:** Build and test on Linux
+**Purpose:** Build and test on Linux using Docker
 - Runs on: Push to main, PRs
-- Platform: Ubuntu 22.04 with Swift 5.9
+- Platform: Docker container with Swift nightly and PyTorch pre-installed
+- Container: `ghcr.io/pedronahum/taylortorch:latest`
 - Tests: Full test suite with LLVM/libc++ support
+- Speed: ~5-10 minutes (vs ~45-60 min with full build)
+
+### 2b. Build Docker (`build-docker.yml`)
+**Purpose:** Build and publish the Docker container for Ubuntu CI
+- Runs on: Dockerfile changes, manual trigger
+- Builds: Swift nightly + PyTorch from source
+- Pushes to: GitHub Container Registry
+- Build time: ~30-45 minutes
 
 ### 3. Deploy DocC (`deploy-docc.yml`) 📚
 **Purpose:** Automatically deploy documentation to GitHub Pages
@@ -67,6 +76,44 @@ Required for DocC deployment:
 - Settings → Actions → General → Workflow permissions
 - Select: **Read and write permissions**
 
+## Updating Docker Image
+
+### To update Swift version:
+1. Find available snapshots at [Docker Hub - swiftlang/swift tags](https://hub.docker.com/r/swiftlang/swift/tags)
+2. Edit `Dockerfile` (line 9) to use specific snapshot:
+   ```dockerfile
+   FROM swiftlang/swift:nightly-jammy-DEVELOPMENT-SNAPSHOT-YYYY-MM-DD-a
+   ```
+3. Update `SWIFT_VERSION` env var (line 12) in `Dockerfile` to match
+4. Push to trigger `build-docker.yml`
+5. Wait for new image to be built (~30-45 min)
+6. `ubuntu-ci.yml` will automatically use the updated image
+
+**Available snapshot tag formats:**
+- `nightly-jammy-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Ubuntu 22.04 - current)
+- `nightly-focal-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Ubuntu 20.04)
+- `nightly-amazonlinux2-DEVELOPMENT-SNAPSHOT-2025-10-02-a` (Amazon Linux)
+
+**Current Swift version:** `swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a`
+
+### To update PyTorch version:
+1. Edit `PYTORCH_VERSION` (line 13) in `Dockerfile`
+2. Push to trigger `build-docker.yml`
+3. Wait for PyTorch to rebuild (~30-45 min)
+
+### To test Docker image locally:
+```bash
+# Build the image
+docker build -t taylortorch-dev .
+
+# Run interactive shell
+docker run -it taylortorch-dev /bin/bash
+
+# Test Swift and PyTorch
+docker run -it taylortorch-dev swift --version
+docker run -it taylortorch-dev ls -lh /opt/pytorch/lib
+```
+
 ## Documentation Deployment Setup
 
 See [GITHUB_PAGES_SETUP.md](../../GITHUB_PAGES_SETUP.md) for complete setup instructions.
@@ -97,13 +144,47 @@ See [GITHUB_PAGES_SETUP.md](../../GITHUB_PAGES_SETUP.md) for complete setup inst
 2. Check for platform-specific issues
 3. Review test logs in Actions tab
 
+## Backup Files
+
+### `ubuntu-ci-with-swiftly-and-pytorch-build.yml.backup`
+**⚠️ REFERENCE ONLY - DO NOT USE AS WORKFLOW**
+
+Full Ubuntu CI workflow that builds everything from scratch:
+- Installs Swift via Swiftly
+- Builds PyTorch from source every run
+- Uses GitHub Actions caching
+- Runs on ubuntu-24.04 (no Docker)
+- Build time: ~45-60 minutes
+
+**Why it's backed up:**
+- Reference for debugging environment issues
+- Shows exact dependency installation steps
+- Useful for adapting to new platforms
+- Template for updating Docker container
+
+**To use this approach:**
+1. Copy to `ubuntu-ci.yml`
+2. Remove header comments
+3. Restore original job name
+
+## Docker vs Full Build Comparison
+
+| Aspect | Docker (Current) | Full Build (Backup) |
+|--------|-----------------|-------------------|
+| **CI Run Time** | ~5-10 min | ~45-60 min |
+| **Setup** | Pull pre-built image | Install everything |
+| **Consistency** | Very high | Medium |
+| **Debugging** | Check Docker build | All steps visible |
+| **Maintenance** | Update Dockerfile | Update workflow |
+| **First Run** | Need Docker image | Works immediately |
+
 ## Best Practices
 
-1. **Keep workflows fast:** Use caching for dependencies
+1. **Keep workflows fast:** Use Docker for complex dependencies
 2. **Test locally first:** Don't rely on CI to catch basic errors
 3. **Use matrix builds:** Test on multiple platforms/versions
 4. **Fail fast:** Stop on first error to save resources
-5. **Cache dependencies:** Speed up builds with `actions/cache`
+5. **Cache Docker layers:** Speed up container builds
 
 ## Resources
 
@@ -113,6 +194,7 @@ See [GITHUB_PAGES_SETUP.md](../../GITHUB_PAGES_SETUP.md) for complete setup inst
 
 ---
 
-**Last Updated:** 2025-10-25
-**Workflows:** 3 active
+**Last Updated:** 2025-10-28
+**Workflows:** 4 active (macOS CI, Ubuntu CI, Build Docker, Deploy DocC)
+**Backups:** 1 reference file
 **Documentation:** Ready for deployment 🚀
