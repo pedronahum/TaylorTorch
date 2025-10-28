@@ -108,7 +108,9 @@ RUN echo "Installing Swift snapshot: $SWIFT_VERSION" && \
 RUN SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)" && \
     SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_PATH}/usr" && \
     SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin" && \
-    echo "export PATH=/root/.swiftly/bin:${SWIFT_BIN_DIR}:\$PATH" >> /etc/profile.d/swift.sh && \
+    # echo "export PATH=/root/.swiftly/bin:${SWIFT_BIN_DIR}:\$PATH" >> /etc/profile.d/swift.sh && \
+    # New, correct line
+    echo "export PATH=/root/.local/share/swiftly/bin:${SWIFT_BIN_DIR}:\$PATH" >> /etc/profile.d/swift.sh && \
     echo "export SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> /etc/profile.d/swift.sh && \
     echo "export SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> /etc/profile.d/swift.sh && \
     echo "export SWIFT_TOOLCHAIN=${SWIFT_TOOLCHAIN_PATH}" >> /etc/profile.d/swift.sh && \
