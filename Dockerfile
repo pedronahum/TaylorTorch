@@ -86,7 +86,8 @@ RUN pip3 install --break-system-packages \
     cmake
 
 # Install Swiftly (Swift toolchain manager)
-RUN curl -L https://swift-server.github.io/swiftly/swiftly-install.sh | bash -s -- -y
+# Using direct GitHub release instead of website URL
+RUN curl -L https://github.com/swiftlang/swiftly/releases/latest/download/swiftly-install.sh | bash -s -- -y
 ENV PATH="/root/.swiftly/bin:$PATH"
 
 # Download and install the specific Swift snapshot
