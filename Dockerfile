@@ -2,22 +2,22 @@
 # This container has Swift and PyTorch pre-installed for CI builds
 #
 # Swift Version: Using specific development snapshot via Swiftly
+# - Use 'main-snapshot' for the latest nightly, or a specific date-stamped snapshot
 # - Current: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a on Ubuntu 24.04
-# - To update: Change SWIFT_SNAPSHOT_URL and SWIFT_VERSION below
-# - Find snapshots at: https://www.swift.org/download/
+# - Find snapshot names at: https://www.swift.org/download/
 #
 # Build with default snapshot:
 #   docker build -t taylortorch-dev .
 #
-# Build with custom snapshot:
-#   docker build \
-#     --build-arg SWIFT_SNAPSHOT_URL="https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a-ubuntu24.04.tar.gz" \
-#     --build-arg SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a" \
-#     -t taylortorch-dev .
+# Build with specific snapshot:
+#   docker build --build-arg SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a" -t taylortorch-dev .
+#
+# Build with latest nightly:
+#   docker build --build-arg SWIFT_VERSION="main-snapshot" -t taylortorch-dev .
 FROM ubuntu:24.04
 
 # Swift snapshot configuration
-ARG SWIFT_SNAPSHOT_URL="https://download.swift.org/development/ubuntu2404/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-ubuntu24.04.tar.gz"
+# Swiftly will handle downloading the correct snapshot for the platform
 ARG SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a"
 
 # Set environment variables
@@ -86,17 +86,14 @@ RUN pip3 install --break-system-packages \
     cmake
 
 # Install Swiftly (Swift toolchain manager)
-# Using direct GitHub release instead of website URL
-RUN curl -L https://github.com/swiftlang/swiftly/releases/latest/download/swiftly-install.sh | bash -s -- -y
+RUN curl -L https://swift-server.github.io/swiftly/swiftly-install.sh | bash -s -- -y
 ENV PATH="/root/.swiftly/bin:$PATH"
 
-# Download and install the specific Swift snapshot
-RUN echo "Downloading Swift snapshot from $SWIFT_SNAPSHOT_URL" && \
-    curl -f -L -o /tmp/swift-snapshot.tar.gz "$SWIFT_SNAPSHOT_URL" && \
-    echo "Installing Swift snapshot: $SWIFT_VERSION" && \
-    swiftly install --from-file /tmp/swift-snapshot.tar.gz "$SWIFT_VERSION" && \
+# Install the specific Swift snapshot using Swiftly
+# Swiftly automatically downloads the correct snapshot for ubuntu24.04
+RUN echo "Installing Swift snapshot: $SWIFT_VERSION" && \
+    swiftly install "$SWIFT_VERSION" && \
     swiftly use "$SWIFT_VERSION" && \
-    rm /tmp/swift-snapshot.tar.gz && \
     echo "Swift installation complete:" && \
     swift --version
 
@@ -113,9 +110,13 @@ RUN SWIFT_TOOLCHAIN_PATH="$(swiftly use --print-location)" && \
     echo "export CC=clang" >> /etc/profile.d/swift.sh && \
     echo "export CXX=clang++" >> /etc/profile.d/swift.sh
 
-# Verify OpenMP installation
+# Verify OpenMP installation (required for PyTorch parallel operations)
+# PyTorch needs OpenMP for CPU parallelization, so we locate the headers and library
 RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
+    \
+    # Step 1: Find omp.h header file
+    # Check common locations where OpenMP headers might be installed
     RESOURCE_OMP="${CLANG_RESOURCE_DIR}/include/omp.h" && \
     OMP_INCLUDE_DIR="" && \
     for candidate in \
@@ -131,10 +132,13 @@ RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
         fi; \
     done && \
     if [ -z "${OMP_INCLUDE_DIR}" ]; then \
-        echo "✗ omp.h not found - searching..." && \
+        echo "✗ omp.h not found - searching system..." && \
         find /usr -name "omp.h" 2>/dev/null | grep -v android || echo "omp.h not found!" && \
         exit 1; \
     fi && \
+    \
+    # Step 2: Find libomp.so library file
+    # Check common locations where OpenMP runtime library might be installed
     LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")" && \
     echo "LLVM base dir: ${LLVM_BASE_DIR}" && \
     OMP_LIBRARY="" && \
@@ -150,19 +154,24 @@ RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
         fi; \
     done && \
     if [ -z "${OMP_LIBRARY}" ]; then \
-        echo "✗ libomp.so not found - searching..." && \
+        echo "✗ libomp.so not found - searching system..." && \
         find /usr -name "libomp.so*" 2>/dev/null | grep -v android || echo "libomp.so not found!" && \
         exit 1; \
     fi && \
+    \
+    # Step 3: Save OpenMP paths to environment file for PyTorch build
     OMP_INCLUDE_DIR="$(realpath "${OMP_INCLUDE_DIR}")" && \
     OMP_LIBRARY="$(realpath "${OMP_LIBRARY}")" && \
     echo "export OMP_INCLUDE_DIR=${OMP_INCLUDE_DIR}" >> /etc/profile.d/pytorch.sh && \
     echo "export OMP_LIBRARY=${OMP_LIBRARY}" >> /etc/profile.d/pytorch.sh
 
-# Build PyTorch
+# Build PyTorch from source with Swift C++ interop support
+# This is a complex build because PyTorch and Swift need to use the same C++ standard library
 RUN . /etc/profile.d/pytorch.sh && \
     echo "Using OpenMP include: $OMP_INCLUDE_DIR" && \
     echo "Using OpenMP library: $OMP_LIBRARY" && \
+    \
+    # Step 1: Clone PyTorch repository at the specified version
     git clone --recursive https://github.com/pytorch/pytorch.git /tmp/pytorch && \
     cd /tmp/pytorch && \
     git checkout ${PYTORCH_VERSION} && \
@@ -170,6 +179,9 @@ RUN . /etc/profile.d/pytorch.sh && \
     git submodule update --init --recursive && \
     mkdir -p build && \
     cd build && \
+    \
+    # Step 2: Locate compiler and toolchain directories
+    # We need to know where clang and Swift are installed to configure the build
     CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")" && \
     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
@@ -177,6 +189,10 @@ RUN . /etc/profile.d/pytorch.sh && \
     SWIFT_BIN="$(which swift)" && \
     SWIFT_TOOLCHAIN_DIR="$(dirname $(dirname ${SWIFT_BIN}))" && \
     echo "Swift toolchain dir: ${SWIFT_TOOLCHAIN_DIR}" && \
+    \
+    # Step 3: Find libc++ (C++ standard library)
+    # TaylorTorch uses Swift C++ interop, so PyTorch must use the same C++ stdlib as Swift
+    # Try Swift's bundled libc++ first, then fall back to system LLVM 18
     LIBCXX_INCLUDE_DIR="" && \
     LIBCXX_SOURCE="unknown" && \
     for candidate in \
