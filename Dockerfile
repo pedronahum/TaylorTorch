@@ -24,7 +24,8 @@ ARG SWIFT_VERSION="swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a"
 ENV SWIFT_VERSION=${SWIFT_VERSION} \
     PYTORCH_VERSION=v2.8.0 \
     PYTORCH_INSTALL_DIR=/opt/pytorch \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    MAX_JOBS=2
 
 # Install system dependencies (Swift + PyTorch build deps)
 RUN apt-get update && apt-get install -y \
@@ -174,18 +175,33 @@ RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     echo "export OMP_INCLUDE_DIR=${OMP_INCLUDE_DIR}" >> /etc/profile.d/pytorch.sh && \
     echo "export OMP_LIBRARY=${OMP_LIBRARY}" >> /etc/profile.d/pytorch.sh
 
-# Build PyTorch from source with Swift C++ interop support
-# This is a complex build because PyTorch and Swift need to use the same C++ standard library
+# Clean up to free disk space before PyTorch build
+RUN df -h && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    df -h
+
+# Stage 1: Clone PyTorch repository with retry logic and shallow clone
+# Using shallow clone to save disk space and time
+RUN git clone --depth=1 --shallow-submodules \
+        https://github.com/pytorch/pytorch.git /tmp/pytorch || \
+    (echo "First clone attempt failed, retrying..." && sleep 10 && \
+     git clone --depth=1 --shallow-submodules \
+        https://github.com/pytorch/pytorch.git /tmp/pytorch)
+
+# Stage 2: Checkout specific version and update submodules
+RUN cd /tmp/pytorch && \
+    git fetch --depth=1 origin ${PYTORCH_VERSION} && \
+    git checkout ${PYTORCH_VERSION} && \
+    git submodule sync && \
+    git submodule update --init --depth=1
+
+# Stage 3: Configure PyTorch build with libc++ detection
+# This is complex because PyTorch and Swift need to use the same C++ standard library
 RUN . /etc/profile.d/pytorch.sh && \
     echo "Using OpenMP include: $OMP_INCLUDE_DIR" && \
     echo "Using OpenMP library: $OMP_LIBRARY" && \
-    \
-    # Step 1: Clone PyTorch repository at the specified version
-    git clone --recursive https://github.com/pytorch/pytorch.git /tmp/pytorch && \
     cd /tmp/pytorch && \
-    git checkout ${PYTORCH_VERSION} && \
-    git submodule sync && \
-    git submodule update --init --recursive && \
     mkdir -p build && \
     cd build && \
     \
@@ -344,11 +360,26 @@ RUN . /etc/profile.d/pytorch.sh && \
     -DUSE_QNNPACK=OFF \
     -DUSE_FBGEMM=OFF \
     -DPYTHON_EXECUTABLE=$(which python3) \
-    -GNinja && \
-    cmake --build . --target install -j$(nproc) && \
-    mkdir -p /opt/pytorch && \
+    -GNinja
+
+# Stage 4: Build PyTorch (this is the resource-intensive step)
+# Using MAX_JOBS=2 to avoid OOM on GitHub Actions runners (7GB RAM limit)
+# Adding error logging to capture build failures
+RUN set -ex && \
+    cd /tmp/pytorch/build && \
+    echo "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..." && \
+    cmake --build . --target install -j${MAX_JOBS} 2>&1 | tee /tmp/pytorch-build.log || \
+    (echo "=== BUILD FAILED ===" && \
+     echo "Last 100 lines of build log:" && \
+     tail -n 100 /tmp/pytorch-build.log && \
+     exit 1)
+
+# Stage 5: Install PyTorch and cleanup
+RUN mkdir -p /opt/pytorch && \
     cp -r /tmp/pytorch/build/install/* /opt/pytorch/ && \
-    rm -rf /tmp/pytorch
+    rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
+    echo "PyTorch installation complete" && \
+    ls -lh /opt/pytorch/lib/ | head -20
 
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \
