@@ -83,8 +83,7 @@ RUN pip3 install --break-system-packages \
     pyyaml \
     typing_extensions \
     sympy \
-    cffi \
-    cmake
+    cffi 
 
 # Install Swiftly (Swift toolchain manager)
 # Install Swiftly (Swift toolchain manager) using the new manual method
@@ -184,15 +183,15 @@ RUN df -h && \
 # Stage 1: Clone PyTorch repository at specific version with retry logic
 # Clone the specific tag directly with --branch to avoid checkout issues
 RUN git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-        https://github.com/pytorch/pytorch.git /tmp/pytorch || \
+    https://github.com/pytorch/pytorch.git /tmp/pytorch || \
     (echo "First clone attempt failed, retrying..." && sleep 10 && \
-     git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-        https://github.com/pytorch/pytorch.git /tmp/pytorch)
+    git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
+    https://github.com/pytorch/pytorch.git /tmp/pytorch)
 
 # Stage 2: Update submodules (checkout is already done by the clone)
 RUN cd /tmp/pytorch && \
     git submodule sync && \
-    git submodule update --init --depth=1
+    git submodule update --init --depth=1 --recursive
 
 # Stage 3: Configure PyTorch build with libc++ detection
 # This is complex because PyTorch and Swift need to use the same C++ standard library
@@ -368,9 +367,9 @@ RUN set -ex && \
     echo "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..." && \
     cmake --build . --target install -j${MAX_JOBS} 2>&1 | tee /tmp/pytorch-build.log || \
     (echo "=== BUILD FAILED ===" && \
-     echo "Last 100 lines of build log:" && \
-     tail -n 100 /tmp/pytorch-build.log && \
-     exit 1)
+    echo "Last 100 lines of build log:" && \
+    tail -n 100 /tmp/pytorch-build.log && \
+    exit 1)
 
 # Stage 5: Install PyTorch and cleanup
 RUN mkdir -p /opt/pytorch && \
