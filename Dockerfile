@@ -181,18 +181,16 @@ RUN df -h && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     df -h
 
-# Stage 1: Clone PyTorch repository with retry logic and shallow clone
-# Using shallow clone to save disk space and time
-RUN git clone --depth=1 --shallow-submodules \
+# Stage 1: Clone PyTorch repository at specific version with retry logic
+# Clone the specific tag directly with --branch to avoid checkout issues
+RUN git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
         https://github.com/pytorch/pytorch.git /tmp/pytorch || \
     (echo "First clone attempt failed, retrying..." && sleep 10 && \
-     git clone --depth=1 --shallow-submodules \
+     git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
         https://github.com/pytorch/pytorch.git /tmp/pytorch)
 
-# Stage 2: Checkout specific version and update submodules
+# Stage 2: Update submodules (checkout is already done by the clone)
 RUN cd /tmp/pytorch && \
-    git fetch --depth=1 origin ${PYTORCH_VERSION} && \
-    git checkout ${PYTORCH_VERSION} && \
     git submodule sync && \
     git submodule update --init --depth=1
 
