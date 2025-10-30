@@ -371,11 +371,11 @@ RUN set -ex && \
     tail -n 100 /tmp/pytorch-build.log && \
     exit 1)
 
-# Stage 5: Install PyTorch and cleanup
-RUN mkdir -p /opt/pytorch && \
-    cp -r /tmp/pytorch/build/install/* /opt/pytorch/ && \
-    rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
+# Stage 5: Cleanup after PyTorch build
+# cmake --target install already installed to /opt/pytorch, so just cleanup
+RUN rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
     echo "PyTorch installation complete" && \
+    echo "Verifying PyTorch library installation:" && \
     ls -lh /opt/pytorch/lib/ | head -20
 
 # Set up PyTorch library paths
