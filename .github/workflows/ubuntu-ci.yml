@@ -11,7 +11,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ toLower(github.repository) }}:latest
+      image: ghcr.io/pedronahum/taylortorch:latest
       options: --user root
 
     steps:
