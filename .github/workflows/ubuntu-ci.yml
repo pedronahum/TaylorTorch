@@ -24,7 +24,7 @@ jobs:
         # This sets $PATH, $LD_LIBRARY_PATH, $SWIFT_TOOLCHAIN_DIR, $PYTORCH_INSTALL_DIR, etc.
         . /etc/profile.d/swift.sh
 
-        # Now, just persist those variables for subsequent CI steps
+        # Now, persist those variables for subsequent CI steps
         echo "$PATH" > $GITHUB_PATH
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
@@ -35,11 +35,11 @@ jobs:
 
     - name: Build TaylorTorch
       run: |
-        swift build -c release
+        swift build -c release -v
 
     - name: Run tests
       run: |
-        swift test -c release
+        swift test -c release 
 
     - name: Build examples
       run: |
