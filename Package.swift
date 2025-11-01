@@ -95,9 +95,8 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            // C++ libraries - using -Xlinker prefix to prevent reordering
-            "-Xlinker", "-lc++",
-            "-Xlinker", "-lc++abi",
+            // C++ libraries - using libstdc++ since Swift requires it on Linux
+            "-Xlinker", "-lstdc++",
             "-Xlinker", "-lm",
             // PyTorch libraries in --whole-archive block
             "-Xlinker", "--whole-archive",
@@ -122,8 +121,7 @@ if let cStandardLibraryModuleMap {
 // Platform-specific linker settings for ATenCXXDoctests
 #if os(Linux)
     let platformLinkerSettings: [LinkerSetting] = [
-        .linkedLibrary("c++"),
-        .linkedLibrary("c++abi"),
+        .linkedLibrary("stdc++"),
         .linkedLibrary("m"),
     ]
 
@@ -132,8 +130,7 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            "-Xlinker", "-lc++",
-            "-Xlinker", "-lc++abi",
+            "-Xlinker", "-lstdc++",
             "-Xlinker", "-lm",
             "-Xlinker", "-lc10",
             "-Xlinker", "-ltorch_cpu",
@@ -178,7 +175,8 @@ if let cStandardLibraryModuleMap {
 // Platform-specific CXX settings for Linux
 #if os(Linux)
     let platformCxxSettings: [CXXSetting] = [
-        .unsafeFlags(["-stdlib=libc++"])
+        // Use libstdc++ (GNU C++ standard library) on Linux since Swift requires it
+        .unsafeFlags(["-stdlib=libstdc++"])
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
