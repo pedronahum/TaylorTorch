@@ -100,6 +100,7 @@ if let cStandardLibraryModuleMap {
             "-Xlinker", "--whole-archive",
             "-ltorch_cpu",
             "-ltorch",
+            "-lc10",
             "-Xlinker", "--no-whole-archive",
         ]),
 
