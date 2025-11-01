@@ -91,22 +91,22 @@ if let cStandardLibraryModuleMap {
 // These symbols are in static registration sections that get optimized out without this flag
 #if os(Linux)
     let commonLinkerSettings: [LinkerSetting] = [
-        // CRITICAL: All linker flags must be in ONE unsafeFlags block to prevent SPM reordering
+        // CRITICAL: Every flag must be passed through -Xlinker to prevent swiftc reordering
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            // C++ libraries must come first
-            "-lc++",
-            "-lc++abi",
-            "-lm",
+            // C++ libraries - using -Xlinker prefix to prevent reordering
+            "-Xlinker", "-lc++",
+            "-Xlinker", "-lc++abi",
+            "-Xlinker", "-lm",
             // PyTorch libraries in --whole-archive block
             "-Xlinker", "--whole-archive",
-            "-ltorch_cpu",
-            "-ltorch",
-            "-lc10",
+            "-Xlinker", "-ltorch_cpu",
+            "-Xlinker", "-ltorch",
+            "-Xlinker", "-lc10",
             "-Xlinker", "--no-whole-archive",
             // Additional dependencies
-            "-ltorch_global_deps",
+            "-Xlinker", "-ltorch_global_deps",
         ])
     ]
 #else
@@ -127,16 +127,16 @@ if let cStandardLibraryModuleMap {
         .linkedLibrary("m"),
     ]
 
-    // ATenCXXDoctests needs all settings in one unsafeFlags block too
+    // ATenCXXDoctests - also needs -Xlinker prefix for consistency
     let atenDoctestsLinkerSettings: [LinkerSetting] = [
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            "-lc++",
-            "-lc++abi",
-            "-lm",
-            "-lc10",
-            "-ltorch_cpu",
+            "-Xlinker", "-lc++",
+            "-Xlinker", "-lc++abi",
+            "-Xlinker", "-lm",
+            "-Xlinker", "-lc10",
+            "-Xlinker", "-ltorch_cpu",
         ])
     ]
 #else
