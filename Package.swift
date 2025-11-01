@@ -176,7 +176,9 @@ if let cStandardLibraryModuleMap {
 #if os(Linux)
     let platformCxxSettings: [CXXSetting] = [
         // Use libstdc++ (GNU C++ standard library) on Linux since Swift requires it
-        .unsafeFlags(["-stdlib=libstdc++"])
+        .unsafeFlags(["-stdlib=libstdc++"]),
+        // Enable C++11 ABI for compatibility with PyTorch (which uses the new ABI)
+        .define("_GLIBCXX_USE_CXX11_ABI", to: "1")
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
