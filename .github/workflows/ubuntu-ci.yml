@@ -21,28 +21,69 @@ jobs:
     - name: Set up environment
       run: |
         # Source the environment script from the Docker image
-        # This sets $PATH, $LD_LIBRARY_PATH, $SWIFT_TOOLCHAIN_DIR, $PYTORCH_INSTALL_DIR, etc.
         . /etc/profile.d/swift.sh
-
-        # Now, persist those variables for subsequent CI steps
-        echo "$PATH" > $GITHUB_PATH
+        
+        # Verify the environment was sourced correctly
+        echo "Swift toolchain: $SWIFT_TOOLCHAIN_DIR"
+        echo "PyTorch install: $PYTORCH_INSTALL_DIR"
+        echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+        
+        # For PATH, we need to add each directory separately
+        # Extract the Swift-specific paths from the PATH
+        SWIFT_BIN_DIR="${SWIFT_TOOLCHAIN_DIR}/bin"
+        SWIFTLY_BIN_DIR="/root/.local/share/swiftly/bin"
+        
+        # Add paths to GITHUB_PATH (one per line)
+        echo "${SWIFTLY_BIN_DIR}" >> $GITHUB_PATH
+        echo "${SWIFT_BIN_DIR}" >> $GITHUB_PATH
+        
+        # Persist environment variables for subsequent steps
         echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_DIR}" >> $GITHUB_ENV
         echo "SWIFT_TOOLCHAIN_PATH=${SWIFT_TOOLCHAIN_PATH}" >> $GITHUB_ENV
-        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" >> $GITHUB_ENV
         echo "PYTORCH_INSTALL_DIR=${PYTORCH_INSTALL_DIR}" >> $GITHUB_ENV
         echo "CC=${CC}" >> $GITHUB_ENV
         echo "CXX=${CXX}" >> $GITHUB_ENV
+        
+        # CRITICAL: Persist LD_LIBRARY_PATH for linking
+        echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}" >> $GITHUB_ENV
+        
+        # Also set SDKROOT if it exists (needed for proper compilation)
+        if [ -n "$SDKROOT" ]; then
+          echo "SDKROOT=${SDKROOT}" >> $GITHUB_ENV
+        fi
+
+    - name: Verify environment
+      run: |
+        echo "=== Environment Check ==="
+        echo "Swift version:"
+        swift --version
+        echo ""
+        echo "Swift toolchain: $SWIFT_TOOLCHAIN_DIR"
+        echo "PyTorch install: $PYTORCH_INSTALL_DIR"
+        echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+        echo "CC: $CC"
+        echo "CXX: $CXX"
+        echo ""
+        echo "PyTorch libraries:"
+        ls -lh ${PYTORCH_INSTALL_DIR}/lib/ | grep -E "(libtorch|libc10)" || true
+        echo "========================="
 
     - name: Build TaylorTorch
       run: |
+        # Ensure LD_LIBRARY_PATH is set for the build
+        export LD_LIBRARY_PATH="${PYTORCH_INSTALL_DIR}/lib:${LD_LIBRARY_PATH}"
         swift build -c release -v
 
     - name: Run tests
       run: |
+        # Ensure LD_LIBRARY_PATH is set for tests
+        export LD_LIBRARY_PATH="${PYTORCH_INSTALL_DIR}/lib:${LD_LIBRARY_PATH}"
         swift test -c release 
 
     - name: Build examples
       run: |
+        # Ensure LD_LIBRARY_PATH is set for example builds
+        export LD_LIBRARY_PATH="${PYTORCH_INSTALL_DIR}/lib:${LD_LIBRARY_PATH}"
         swift build -c release --product MNISTExample
         swift build -c release --product ANKIExample
         swift build -c release --product KARATEExample
