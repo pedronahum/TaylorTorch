@@ -124,16 +124,45 @@ if let cStandardLibraryModuleMap {
 #endif
 
 // Platform-specific linker settings for Linux
-// NOTE: On Linux, all platform libraries are now in commonLinkerSettings
-// to ensure proper ordering with --whole-archive
+// NOTE: On Linux, main Torch target has everything in commonLinkerSettings,
+// but ATenCXXDoctests still needs these
 #if os(Linux)
-    let platformLinkerSettings: [LinkerSetting] = []
+    let platformLinkerSettings: [LinkerSetting] = [
+        .linkedLibrary("c++"),
+        .linkedLibrary("c++abi"),
+        .linkedLibrary("m"),
+    ]
+
+    // ATenCXXDoctests needs C++ libs first on Linux
+    let atenDoctestsLinkerSettings: [LinkerSetting] = [
+        .unsafeFlags(["-L", pytorchLibDir]),
+        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
+        .linkedLibrary("c++"),
+        .linkedLibrary("c++abi"),
+        .linkedLibrary("m"),
+        .linkedLibrary("c10"),
+        .linkedLibrary("torch_cpu"),
+    ]
 #else
     let platformLinkerSettings: [LinkerSetting] = []
+
+    // On macOS, keep original structure - it works fine!
+    let atenDoctestsLinkerSettings: [LinkerSetting] =
+        [
+            .unsafeFlags(["-L", pytorchLibDir]),
+            .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
+            .linkedLibrary("c10"),
+            .linkedLibrary("torch_cpu"),
+        ] + platformLinkerSettings
 #endif
 
-// Combined linker settings
-let allLinkerSettings = commonLinkerSettings + platformLinkerSettings
+// Combined linker settings for Torch target only
+// ATenCXXDoctests uses atenDoctestsLinkerSettings
+#if os(Linux)
+    let allLinkerSettings = commonLinkerSettings
+#else
+    let allLinkerSettings = commonLinkerSettings + platformLinkerSettings
+#endif
 
 var atenCxxSettings: [CXXSetting] = [
     .unsafeFlags(["-I", swiftIncludeDir]),
@@ -218,12 +247,7 @@ let package = Package(
             dependencies: ["ATenCXX"],
             path: "Sources/ATenCXXDoctests",
             cxxSettings: allAtenCxxDoctestSettings,
-            linkerSettings: [
-                .unsafeFlags(["-L", pytorchLibDir]),
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
-                .linkedLibrary("c10"),
-                .linkedLibrary("torch_cpu"),
-            ] + platformLinkerSettings
+            linkerSettings: atenDoctestsLinkerSettings
         ),
 
         // ----------------- Swift Targets -----------------
