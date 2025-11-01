@@ -125,15 +125,20 @@ if let cStandardLibraryModuleMap {
         .linkedLibrary("m"),
     ]
 
-    // ATenCXXDoctests - also needs -Xlinker prefix for consistency
+    // ATenCXXDoctests - needs --whole-archive wrapper like main target
     let atenDoctestsLinkerSettings: [LinkerSetting] = [
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
             "-Xlinker", "-lstdc++",
             "-Xlinker", "-lm",
-            "-Xlinker", "-lc10",
+            // PyTorch libraries in --whole-archive block
+            "-Xlinker", "--whole-archive",
             "-Xlinker", "-ltorch_cpu",
+            "-Xlinker", "-ltorch",
+            "-Xlinker", "-lc10",
+            "-Xlinker", "--no-whole-archive",
+            "-Xlinker", "-ltorch_global_deps",
         ])
     ]
 #else
