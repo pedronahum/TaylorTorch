@@ -182,8 +182,8 @@ if let cStandardLibraryModuleMap {
     let platformCxxSettings: [CXXSetting] = [
         // Use libstdc++ (what PyTorch actually uses in Docker)
         .unsafeFlags(["-stdlib=libstdc++"]),
-        // Use C++11 ABI to match PyTorch's std::__cxx11 symbols
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "1")
+        // Use old ABI (ABI=0) to match Docker PyTorch build
+        .define("_GLIBCXX_USE_CXX11_ABI", to: "0")
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
