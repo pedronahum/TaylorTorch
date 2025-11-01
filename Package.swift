@@ -91,27 +91,23 @@ if let cStandardLibraryModuleMap {
 // These symbols are in static registration sections that get optimized out without this flag
 #if os(Linux)
     let commonLinkerSettings: [LinkerSetting] = [
-        .unsafeFlags(["-L", pytorchLibDir]),
-        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
-
-        // Platform-specific C++ libraries must come first on Linux
-        .linkedLibrary("c++"),
-        .linkedLibrary("c++abi"),
-        .linkedLibrary("m"),
-
-        // We must pass the libraries as unsafeFlags to guarantee the
-        // order relative to --whole-archive. All three libraries must be
-        // inside the whole-archive block together.
+        // CRITICAL: All linker flags must be in ONE unsafeFlags block to prevent SPM reordering
         .unsafeFlags([
+            "-L", pytorchLibDir,
+            "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
+            // C++ libraries must come first
+            "-lc++",
+            "-lc++abi",
+            "-lm",
+            // PyTorch libraries in --whole-archive block
             "-Xlinker", "--whole-archive",
             "-ltorch_cpu",
             "-ltorch",
             "-lc10",
             "-Xlinker", "--no-whole-archive",
-        ]),
-
-        // Additional PyTorch dependencies
-        .linkedLibrary("torch_global_deps"),
+            // Additional dependencies
+            "-ltorch_global_deps",
+        ])
     ]
 #else
     let commonLinkerSettings: [LinkerSetting] = [
@@ -123,9 +119,7 @@ if let cStandardLibraryModuleMap {
     ]
 #endif
 
-// Platform-specific linker settings for Linux
-// NOTE: On Linux, main Torch target has everything in commonLinkerSettings,
-// but ATenCXXDoctests still needs these
+// Platform-specific linker settings for ATenCXXDoctests
 #if os(Linux)
     let platformLinkerSettings: [LinkerSetting] = [
         .linkedLibrary("c++"),
@@ -133,15 +127,17 @@ if let cStandardLibraryModuleMap {
         .linkedLibrary("m"),
     ]
 
-    // ATenCXXDoctests needs C++ libs first on Linux
+    // ATenCXXDoctests needs all settings in one unsafeFlags block too
     let atenDoctestsLinkerSettings: [LinkerSetting] = [
-        .unsafeFlags(["-L", pytorchLibDir]),
-        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
-        .linkedLibrary("c++"),
-        .linkedLibrary("c++abi"),
-        .linkedLibrary("m"),
-        .linkedLibrary("c10"),
-        .linkedLibrary("torch_cpu"),
+        .unsafeFlags([
+            "-L", pytorchLibDir,
+            "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
+            "-lc++",
+            "-lc++abi",
+            "-lm",
+            "-lc10",
+            "-ltorch_cpu",
+        ])
     ]
 #else
     let platformLinkerSettings: [LinkerSetting] = []
@@ -156,13 +152,8 @@ if let cStandardLibraryModuleMap {
         ] + platformLinkerSettings
 #endif
 
-// Combined linker settings for Torch target only
-// ATenCXXDoctests uses atenDoctestsLinkerSettings
-#if os(Linux)
-    let allLinkerSettings = commonLinkerSettings
-#else
-    let allLinkerSettings = commonLinkerSettings + platformLinkerSettings
-#endif
+// Combined linker settings for Torch target
+let allLinkerSettings = commonLinkerSettings
 
 var atenCxxSettings: [CXXSetting] = [
     .unsafeFlags(["-I", swiftIncludeDir]),
