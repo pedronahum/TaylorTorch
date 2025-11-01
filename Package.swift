@@ -94,8 +94,14 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags(["-L", pytorchLibDir]),
         .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", pytorchLibDir]),
 
+        // Platform-specific C++ libraries must come first on Linux
+        .linkedLibrary("c++"),
+        .linkedLibrary("c++abi"),
+        .linkedLibrary("m"),
+
         // We must pass the libraries as unsafeFlags to guarantee the
-        // order relative to --whole-archive.
+        // order relative to --whole-archive. All three libraries must be
+        // inside the whole-archive block together.
         .unsafeFlags([
             "-Xlinker", "--whole-archive",
             "-ltorch_cpu",
@@ -104,8 +110,8 @@ if let cStandardLibraryModuleMap {
             "-Xlinker", "--no-whole-archive",
         ]),
 
-        // c10 does not need to be in the whole-archive block
-        .linkedLibrary("c10"),
+        // Additional PyTorch dependencies
+        .linkedLibrary("torch_global_deps"),
     ]
 #else
     let commonLinkerSettings: [LinkerSetting] = [
@@ -118,16 +124,10 @@ if let cStandardLibraryModuleMap {
 #endif
 
 // Platform-specific linker settings for Linux
+// NOTE: On Linux, all platform libraries are now in commonLinkerSettings
+// to ensure proper ordering with --whole-archive
 #if os(Linux)
-    let platformLinkerSettings: [LinkerSetting] = [
-        // Explicitly link libc++ libraries (don't use -stdlib flag for linking)
-        .linkedLibrary("c++"),
-        .linkedLibrary("c++abi"),
-        // Math library (for sqrt, log10, ceil, etc.)
-        .linkedLibrary("m"),
-        // Additional PyTorch libraries that may be needed
-        .linkedLibrary("torch_global_deps"),
-    ]
+    let platformLinkerSettings: [LinkerSetting] = []
 #else
     let platformLinkerSettings: [LinkerSetting] = []
 #endif
