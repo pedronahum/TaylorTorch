@@ -9,7 +9,11 @@ on:
 
 jobs:
   build-and-test:
+<<<<<<< HEAD
     runs-on: macos-15
+=======
+    runs-on: macos-14
+>>>>>>> 0c78e25 (Codespaces & CI)
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a
@@ -22,6 +26,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+<<<<<<< HEAD
     - name: Install Xcode Command Line Tools
       run: |
         # Check if command line tools are already installed
@@ -38,6 +43,8 @@ jobs:
         # Accept license if needed
         sudo xcodebuild -license accept 2>/dev/null || true
 
+=======
+>>>>>>> 0c78e25 (Codespaces & CI)
     - name: Install Homebrew dependencies
       run: |
         brew update
@@ -47,12 +54,20 @@ jobs:
           libomp \
           openblas \
           protobuf \
+<<<<<<< HEAD
           wget \
           gnu-getopt
 
     - name: Install Python packages for PyTorch
       run: |
         pip3 install --break-system-packages \
+=======
+          wget
+
+    - name: Install Python packages for PyTorch
+      run: |
+        pip3 install --break-all-system-packages \
+>>>>>>> 0c78e25 (Codespaces & CI)
           numpy \
           pyyaml \
           typing_extensions \
@@ -64,6 +79,7 @@ jobs:
       id: cache-swift
       uses: actions/cache@v4
       with:
+<<<<<<< HEAD
         path: |
           ~/Library/Developer/Toolchains/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a.xctoolchain
         key: swift-toolchain-${{ runner.os }}-${{ env.SWIFT_VERSION }}
@@ -211,6 +227,30 @@ jobs:
 
         # Set TOOLCHAINS for this step and verify
         export TOOLCHAINS="${TOOLCHAIN_IDENTIFIER}"
+=======
+        path: ~/Library/Developer/Toolchains/swift-${{ env.SWIFT_VERSION }}.xctoolchain
+        key: swift-${{ env.SWIFT_VERSION }}-macos
+
+    - name: Download and install Swift
+      if: steps.cache-swift.outputs.cache-hit != 'true'
+      run: |
+        SWIFT_URL=https://download.swift.org/development/xcode/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a/swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a-osx.pkg
+        wget -q $SWIFT_URL -O swift.pkg
+        sudo installer -pkg swift.pkg -target /
+        rm swift.pkg
+
+    - name: Select Swift toolchain
+      run: |
+        export TOOLCHAINS=swift
+        SWIFT_TOOLCHAIN_PATH=$(find ~/Library/Developer/Toolchains -name "swift-${SWIFT_VERSION}.xctoolchain" -type d | head -n 1)
+        if [ -z "$SWIFT_TOOLCHAIN_PATH" ]; then
+          SWIFT_TOOLCHAIN_PATH="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}.xctoolchain"
+        fi
+        echo "SWIFT_TOOLCHAIN_DIR=${SWIFT_TOOLCHAIN_PATH}/usr" >> $GITHUB_ENV
+        echo "TOOLCHAINS=swift" >> $GITHUB_ENV
+        export PATH="${SWIFT_TOOLCHAIN_PATH}/usr/bin:$PATH"
+        echo "${SWIFT_TOOLCHAIN_PATH}/usr/bin" >> $GITHUB_PATH
+>>>>>>> 0c78e25 (Codespaces & CI)
         swift --version
 
     - name: Cache PyTorch build
@@ -232,6 +272,7 @@ jobs:
     - name: Build PyTorch
       if: steps.cache-pytorch.outputs.cache-hit != 'true'
       run: |
+<<<<<<< HEAD
         # Verify SWIFT_TOOLCHAIN_DIR is set
         if [ -z "$SWIFT_TOOLCHAIN_DIR" ]; then
           echo "Error: SWIFT_TOOLCHAIN_DIR is not set"
@@ -239,11 +280,17 @@ jobs:
         fi
 
         echo "SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
+=======
+        cd ${{ github.workspace }}/pytorch-src
+        mkdir -p build
+        cd build
+>>>>>>> 0c78e25 (Codespaces & CI)
 
         # Use Swift toolchain's clang
         SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
         SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
 
+<<<<<<< HEAD
         # Verify compilers exist
         if [ ! -f "$SWIFT_CLANG" ]; then
           echo "Error: clang not found at $SWIFT_CLANG"
@@ -261,6 +308,8 @@ jobs:
         mkdir -p build
         cd build
 
+=======
+>>>>>>> 0c78e25 (Codespaces & CI)
         CC=$SWIFT_CLANG CXX=$SWIFT_CLANGXX cmake .. \
           -DCMAKE_C_COMPILER=$SWIFT_CLANG \
           -DCMAKE_CXX_COMPILER=$SWIFT_CLANGXX \
@@ -269,9 +318,19 @@ jobs:
           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/pytorch-install \
           -DBUILD_PYTHON=OFF \
           -DBUILD_TEST=OFF \
+<<<<<<< HEAD
           -DBUILD_CAFFE2=OFF \
           -DUSE_DISTRIBUTED=OFF \
           -DUSE_MPS=OFF \
+=======
+          -DBUILD_CAFFE2=ON \
+          -DUSE_DISTRIBUTED=OFF \
+          -DUSE_MPS=ON \
+          -DUSE_NNPACK=ON \
+          -DUSE_XNNPACK=ON \
+          -DUSE_OPENMP=ON \
+          -DUSE_SYSTEM_BLAS=ON \
+>>>>>>> 0c78e25 (Codespaces & CI)
           -DUSE_CUDA=OFF \
           -DPYTHON_EXECUTABLE=$(which python3) \
           -GNinja
@@ -288,6 +347,7 @@ jobs:
         swift --version
         echo "Swift toolchain dir: $SWIFT_TOOLCHAIN_DIR"
         echo "PyTorch install dir: $PYTORCH_INSTALL_DIR"
+<<<<<<< HEAD
         echo "SDKROOT: $SDKROOT"
         echo "TOOLCHAINS: $TOOLCHAINS"
         echo "Checking PyTorch libraries:"
@@ -422,3 +482,21 @@ jobs:
           -Xcc -isysroot -Xcc "${SDKROOT}" \
           "${MODULEMAP_FLAGS[@]}" \
           -Xlinker -L -Xlinker "${SDKROOT}/usr/lib"
+=======
+        echo "Checking PyTorch libraries:"
+        ls -la $PYTORCH_INSTALL_DIR/lib/ | head -20
+
+    - name: Build TaylorTorch
+      run: |
+        swift build -c release
+
+    - name: Run tests
+      run: |
+        swift test -c release
+
+    - name: Build examples
+      run: |
+        swift build -c release --product MNISTExample
+        swift build -c release --product ANKIExample
+        swift build -c release --product KARATEExample
+>>>>>>> 0c78e25 (Codespaces & CI)
