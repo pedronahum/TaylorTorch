@@ -222,10 +222,10 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .library(name: "Torch", targets: ["Torch"])
-        /* .executable(name: "MNISTExample", targets: ["MNISTExample"]),
-         .executable(name: "ANKIExample", targets: ["ANKIExample"]),
-         .executable(name: "KARATEExample", targets: ["KARATEExample"]),*/
+        .library(name: "Torch", targets: ["Torch"]),
+        .executable(name: "MNISTExample", targets: ["MNISTExample"]),
+        .executable(name: "ANKIExample", targets: ["ANKIExample"]),
+        .executable(name: "KARATEExample", targets: ["KARATEExample"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
@@ -261,7 +261,7 @@ let package = Package(
         ),
 
         // ----------------- Example Targets -----------------
-        /*.executableTarget(
+        .executableTarget(
             name: "MNISTExample",
             dependencies: ["Torch"],
             path: "Examples/MNIST",
@@ -284,7 +284,7 @@ let package = Package(
             cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
-        ),*/
+        ),
         // ----------------- Test Targets -----------------
         .testTarget(
             name: "TensorTests",
