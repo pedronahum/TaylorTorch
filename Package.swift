@@ -183,7 +183,7 @@ if let cStandardLibraryModuleMap {
         // Use libstdc++ (what PyTorch actually uses in Docker)
         .unsafeFlags(["-stdlib=libstdc++"]),
         // Use old ABI (ABI=0) to match Docker PyTorch build
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "0"),
+        .define("_GLIBCXX_USE_CXX11_ABI", to: "1"),
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
@@ -223,9 +223,9 @@ let package = Package(
     ],
     products: [
         .library(name: "Torch", targets: ["Torch"])
-        /*.executable(name: "MNISTExample", targets: ["MNISTExample"]),
-        .executable(name: "ANKIExample", targets: ["ANKIExample"]),
-        .executable(name: "KARATEExample", targets: ["KARATEExample"]),*/
+        /* .executable(name: "MNISTExample", targets: ["MNISTExample"]),
+         .executable(name: "ANKIExample", targets: ["ANKIExample"]),
+         .executable(name: "KARATEExample", targets: ["KARATEExample"]),*/
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
@@ -244,8 +244,7 @@ let package = Package(
             path: "Sources/ATenCXXDoctests",
             cxxSettings: allAtenCxxDoctestSettings,
             linkerSettings: atenDoctestsLinkerSettings
-        ),
-        */
+        ),*/
         // ----------------- Swift Targets -----------------
         .target(
             name: "Torch",
@@ -266,6 +265,7 @@ let package = Package(
             name: "MNISTExample",
             dependencies: ["Torch"],
             path: "Examples/MNIST",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -273,6 +273,7 @@ let package = Package(
             name: "ANKIExample",
             dependencies: ["Torch"],
             path: "Examples/ANKI",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -280,6 +281,7 @@ let package = Package(
             name: "KARATEExample",
             dependencies: ["Torch"],
             path: "Examples/KARATE",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),*/
