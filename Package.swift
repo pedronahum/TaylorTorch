@@ -238,13 +238,13 @@ let package = Package(
             publicHeadersPath: "include",
             cxxSettings: allAtenCxxSettings
         ),
-        /*.executableTarget(
+        .executableTarget(
             name: "ATenCXXDoctests",
             dependencies: ["ATenCXX"],
             path: "Sources/ATenCXXDoctests",
             cxxSettings: allAtenCxxDoctestSettings,
             linkerSettings: atenDoctestsLinkerSettings
-        ),*/
+        ),
         // ----------------- Swift Targets -----------------
         .target(
             name: "Torch",
