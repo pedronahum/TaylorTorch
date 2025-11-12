@@ -31,7 +31,7 @@ ENV SWIFT_VERSION=${SWIFT_VERSION} \
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
-    clang-18 \
+    clang-17 \
     curl \
     git \
     python3 \
@@ -61,7 +61,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libgoogle-glog-dev \
     libgtest-dev \
-    libomp-18-dev \
+    libomp-17-dev \
     libleveldb-dev \
     liblmdb-dev \
     libopencv-dev \
@@ -72,8 +72,8 @@ RUN apt-get update && apt-get install -y \
     openmpi-doc \
     protobuf-compiler \
     libgflags-dev \
-    libc++-18-dev \
-    libc++abi-18-dev \
+    libc++-17-dev \
+    libc++abi-17-dev \
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
@@ -130,8 +130,8 @@ RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     OMP_INCLUDE_DIR="" && \
     for candidate in \
     "${RESOURCE_OMP}" \
-    "/usr/lib/llvm-18/lib/clang/18/include/omp.h" \
-    "/usr/lib/llvm-18/include/omp.h" \
+    "/usr/lib/llvm-17/lib/clang/17/include/omp.h" \
+    "/usr/lib/llvm-17/include/omp.h" \
     "/usr/include/omp.h" \
     "/usr/lib/x86_64-linux-gnu/openmp/include/omp.h"; do \
     if [ -f "${candidate}" ]; then \
@@ -153,7 +153,7 @@ RUN CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
     OMP_LIBRARY="" && \
     for candidate in \
     "${LLVM_BASE_DIR}/lib/libomp.so" \
-    "/usr/lib/llvm-18/lib/libomp.so" \
+    "/usr/lib/llvm-17/lib/libomp.so" \
     "/usr/lib/x86_64-linux-gnu/libomp.so" \
     "/usr/lib/x86_64-linux-gnu/libomp.so.5"; do \
     if [ -f "${candidate}" ]; then \
@@ -214,7 +214,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     \
     # Step 3: Find libc++ (C++ standard library)
     # TaylorTorch uses Swift C++ interop, so PyTorch must use the same C++ stdlib as Swift
-    # Try Swift's bundled libc++ first, then fall back to system LLVM 18
+    # Try Swift's bundled libc++ first, then fall back to system LLVM 17
     LIBCXX_INCLUDE_DIR="" && \
     LIBCXX_SOURCE="unknown" && \
     for candidate in \
@@ -230,13 +230,13 @@ RUN . /etc/profile.d/pytorch.sh && \
     fi; \
     done && \
     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
-    echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 18" && \
+    echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 17" && \
     for candidate in \
-    "/usr/lib/llvm-18/include/c++/v1" \
+    "/usr/lib/llvm-17/include/c++/v1" \
     "/usr/include/c++/v1"; do \
     if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
     LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")" && \
-    LIBCXX_SOURCE="system LLVM 18" && \
+    LIBCXX_SOURCE="system LLVM 17" && \
     echo "✓ Found libc++ in system at ${LIBCXX_INCLUDE_DIR}" && \
     break; \
     fi; \
@@ -244,7 +244,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     fi && \
     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
     echo "ERROR: Unable to locate libc++ headers." && \
-    echo "Please ensure libc++-18-dev is installed." && \
+    echo "Please ensure libc++-17-dev is installed." && \
     exit 1; \
     fi && \
     LIBCXX_LIBRARY_DIR="" && \
@@ -261,7 +261,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     fi && \
     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
     for candidate in \
-    "/usr/lib/llvm-18/lib" \
+    "/usr/lib/llvm-17/lib" \
     "/usr/lib/x86_64-linux-gnu" \
     "/usr/lib"; do \
     if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
@@ -273,7 +273,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     fi && \
     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
     echo "ERROR: Unable to locate libc++ libraries." && \
-    echo "Please ensure libc++-18-dev is installed." && \
+    echo "Please ensure libc++-17-dev is installed." && \
     exit 1; \
     fi && \
     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
@@ -302,13 +302,13 @@ RUN . /etc/profile.d/pytorch.sh && \
     BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}" && \
     echo "✓ Using Swift's clang for PyTorch build"; \
     else \
-    if [ -f "/usr/lib/llvm-18/bin/clang" ] && [ -f "/usr/lib/llvm-18/bin/clang++" ]; then \
-    BUILD_CC="/usr/lib/llvm-18/bin/clang" && \
-    BUILD_CXX="/usr/lib/llvm-18/bin/clang++" && \
-    BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-18/lib/clang/18/include" && \
-    echo "✓ Using system clang-18 for PyTorch build (matches libc++ 18)"; \
+    if [ -f "/usr/lib/llvm-17/bin/clang" ] && [ -f "/usr/lib/llvm-17/bin/clang++" ]; then \
+    BUILD_CC="/usr/lib/llvm-17/bin/clang" && \
+    BUILD_CXX="/usr/lib/llvm-17/bin/clang++" && \
+    BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-17/lib/clang/17/include" && \
+    echo "✓ Using system clang-17 for PyTorch build (matches libc++ 17)"; \
     else \
-    echo "⚠ System clang-18 not found, falling back to Swift's clang" && \
+    echo "⚠ System clang-17 not found, falling back to Swift's clang" && \
     BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
     BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
     BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"; \
@@ -318,7 +318,7 @@ RUN . /etc/profile.d/pytorch.sh && \
     if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
     CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"; \
     else \
-    CMAKE_PREFIX_PATH="/usr/lib/llvm-18;/usr"; \
+    CMAKE_PREFIX_PATH="/usr/lib/llvm-17;/usr"; \
     fi && \
     echo "=== Build Configuration ===" && \
     echo "Compiler: ${BUILD_CC}" && \
@@ -378,6 +378,10 @@ RUN rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
     echo "PyTorch installation complete" && \
     echo "Verifying PyTorch library installation:" && \
     ls -lh /opt/pytorch/lib/ | head -20
+
+# Try with pre-build torch version
+# RUN wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip && \
+#    unzip libtorch-shared-with-deps-latest.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
 
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \
