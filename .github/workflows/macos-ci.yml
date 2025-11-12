@@ -9,11 +9,7 @@ on:
 
 jobs:
   build-and-test:
-<<<<<<< HEAD
     runs-on: macos-15
-=======
-    runs-on: macos-14
->>>>>>> 0c78e25 (Codespaces & CI)
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a
@@ -26,7 +22,6 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-<<<<<<< HEAD
     - name: Install Xcode Command Line Tools
       run: |
         # Check if command line tools are already installed
@@ -43,8 +38,6 @@ jobs:
         # Accept license if needed
         sudo xcodebuild -license accept 2>/dev/null || true
 
-=======
->>>>>>> 0c78e25 (Codespaces & CI)
     - name: Install Homebrew dependencies
       run: |
         brew update
