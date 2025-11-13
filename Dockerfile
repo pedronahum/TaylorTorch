@@ -380,8 +380,8 @@ RUN df -h && \
 #     ls -lh /opt/pytorch/lib/ | head -20
 
 # Try with pre-build torch version
-RUN wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip && \
-    unzip libtorch-shared-with-deps-latest.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
+RUN wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.8.0%2Bcpu.zip && \
+    unzip libtorch-shared-with-deps-2.8.0+cpu.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
 
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \
