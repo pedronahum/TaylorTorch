@@ -158,7 +158,7 @@ func sequential_sgd_step_matches_manual() throws {
   #expect(model.body.second.bias.isClose(to: exp_l2_b, rtol: tol, atol: tol, equalNan: false))
 }
 
-@Test("Sequential (builder): parameter traversal order and flattenedParameters()")
+@Test("Sequential (builder): parameter traversal order and flattenedParameters()")//, .disabled())
 func sequential_parameter_keypaths_and_flattening() throws {
   let l1 = makeLinear(
     weightRows: [
