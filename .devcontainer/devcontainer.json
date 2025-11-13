@@ -12,7 +12,6 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "pvasek.sourcekit-lsp--dev-unofficial",
                 "swiftlang.swift-vscode",
                 "vadimcn.vscode-lldb"
             ],
