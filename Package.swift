@@ -30,6 +30,8 @@ let swiftIncludeDir = "\(swiftToolchainDir)/include"
 
 // Need this locally on Linux to prevent and error with `cmath:211:3: error: redefinition of 'cosh'`
 let clangResourceDir = ProcessInfo.processInfo.environment["CLANG_RESOURCE_DIR"]
+
+// TODO: can we instead point to the LIBSTDCXX include dir?
 let clangLibcxxDir = firstExistingPath([
     ProcessInfo.processInfo.environment["LIBCXX_INCLUDE_DIR"],
     clangResourceDir.map { "\($0)/../../include/c++/v1" },
