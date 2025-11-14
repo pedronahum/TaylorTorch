@@ -27,6 +27,14 @@ func firstExistingPath(_ candidates: [String?]) -> String? {
 let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
 let swiftClangIncludeDir = "\(swiftLibDir)/clang/include"
 let swiftIncludeDir = "\(swiftToolchainDir)/include"
+
+// Need this locally on Linux to prevent and error with `cmath:211:3: error: redefinition of 'cosh'`
+let clangResourceDir = ProcessInfo.processInfo.environment["CLANG_RESOURCE_DIR"]
+let clangLibcxxDir = firstExistingPath([
+    ProcessInfo.processInfo.environment["LIBCXX_INCLUDE_DIR"],
+    clangResourceDir.map { "\($0)/../../include/c++/v1" },
+    "\(swiftClangIncludeDir)/../c++/v1",
+])
 let swiftBridgingIncludeDir: String? = {
     let candidates: [String?] = [
         ProcessInfo.processInfo.environment["SWIFT_BRIDGING_INCLUDE_DIR"],
@@ -85,6 +93,9 @@ if let darwinModuleMap {
 if let cStandardLibraryModuleMap {
     commonSwiftSettings.append(
         .unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
+}
+if let clangLibcxxDir {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-isystem", "-Xcc", clangLibcxxDir]))
 }
 
 // On Linux, use --whole-archive to force inclusion of all PyTorch operator symbols
@@ -182,6 +193,7 @@ if let cStandardLibraryModuleMap {
     let platformCxxSettings: [CXXSetting] = [
         // Use libstdc++ (what PyTorch actually uses in Docker)
         .unsafeFlags(["-stdlib=libstdc++"]),
+        //.unsafeFlags(["-stdlib=libc++"]),
         // Use old ABI (ABI=0) to match Docker PyTorch build
         .define("_GLIBCXX_USE_CXX11_ABI", to: "1"),
     ]
