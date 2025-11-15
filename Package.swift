@@ -28,15 +28,6 @@ let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
 let swiftClangIncludeDir = "\(swiftLibDir)/clang/include"
 let swiftIncludeDir = "\(swiftToolchainDir)/include"
 
-// Need this locally on Linux to prevent and error with `cmath:211:3: error: redefinition of 'cosh'`
-let clangResourceDir = ProcessInfo.processInfo.environment["CLANG_RESOURCE_DIR"]
-
-// TODO: can we instead point to the LIBSTDCXX include dir?
-let clangLibcxxDir = firstExistingPath([
-    ProcessInfo.processInfo.environment["LIBCXX_INCLUDE_DIR"],
-    clangResourceDir.map { "\($0)/../../include/c++/v1" },
-    "\(swiftClangIncludeDir)/../c++/v1",
-])
 let swiftBridgingIncludeDir: String? = {
     let candidates: [String?] = [
         ProcessInfo.processInfo.environment["SWIFT_BRIDGING_INCLUDE_DIR"],
@@ -96,9 +87,9 @@ if let cStandardLibraryModuleMap {
     commonSwiftSettings.append(
         .unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
 }
-if let clangLibcxxDir {
+/*if let clangLibcxxDir {
     commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-isystem", "-Xcc", clangLibcxxDir]))
-}
+}*/
 
 // On Linux, use --whole-archive to force inclusion of all PyTorch operator symbols
 // These symbols are in static registration sections that get optimized out without this flag
