@@ -87,10 +87,11 @@ RUN pip3 install --break-system-packages \
 
 # Install Swiftly (Swift toolchain manager)
 # Install Swiftly (Swift toolchain manager) using the new manual method
+# Skip install of default toolchain when installing swiftly
 RUN ARCH=$(uname -m) && \
     curl -f -L -O "https://download.swift.org/swiftly/linux/swiftly-${ARCH}.tar.gz" && \
     tar zxf "swiftly-${ARCH}.tar.gz" && \
-    ./swiftly init --quiet-shell-followup && \
+    ./swiftly init --quiet-shell-followup --skip-install && \
     rm "swiftly-${ARCH}.tar.gz"
 
 # Add swiftly to the PATH. **Note: The install path is different!**
