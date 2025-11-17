@@ -182,206 +182,206 @@ RUN df -h && \
 
 # Stage 1: Clone PyTorch repository at specific version with retry logic
 # Clone the specific tag directly with --branch to avoid checkout issues
-# RUN git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-#     https://github.com/pytorch/pytorch.git /tmp/pytorch || \
-#     (echo "First clone attempt failed, retrying..." && sleep 10 && \
-#     git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-#     https://github.com/pytorch/pytorch.git /tmp/pytorch)
+RUN git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
+    https://github.com/pytorch/pytorch.git /tmp/pytorch || \
+    (echo "First clone attempt failed, retrying..." && sleep 10 && \
+    git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
+    https://github.com/pytorch/pytorch.git /tmp/pytorch)
 
 # # Stage 2: Update submodules (checkout is already done by the clone)
-# RUN cd /tmp/pytorch && \
-#     git submodule sync && \
-#     git submodule update --init --depth=1 --recursive
+RUN cd /tmp/pytorch && \
+    git submodule sync && \
+    git submodule update --init --depth=1 --recursive
 
 # Stage 3: Configure PyTorch build with libc++ detection
 # This is complex because PyTorch and Swift need to use the same C++ standard library
-# RUN . /etc/profile.d/pytorch.sh && \
-#     echo "Using OpenMP include: $OMP_INCLUDE_DIR" && \
-#     echo "Using OpenMP library: $OMP_LIBRARY" && \
-#     cd /tmp/pytorch && \
-#     mkdir -p build && \
-#     cd build && \
-#     \
-#     # Step 2: Locate compiler and toolchain directories
-#     # We need to know where clang and Swift are installed to configure the build
-#     CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
-#     LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")" && \
-#     echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
-#     echo "LLVM base dir: ${LLVM_BASE_DIR}" && \
-#     SWIFT_BIN="$(which swift)" && \
-#     SWIFT_TOOLCHAIN_DIR="$(dirname $(dirname ${SWIFT_BIN}))" && \
-#     echo "Swift toolchain dir: ${SWIFT_TOOLCHAIN_DIR}" && \
-#     \
-#     # Step 3: Find libc++ (C++ standard library)
-#     # TaylorTorch uses Swift C++ interop, so PyTorch must use the same C++ stdlib as Swift
-#     # Try Swift's bundled libc++ first, then fall back to system LLVM 17
-#     LIBCXX_INCLUDE_DIR="" && \
-#     LIBCXX_SOURCE="unknown" && \
-#     for candidate in \
-#     "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
-#     "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
-#     "${SWIFT_TOOLCHAIN_DIR}/lib/swift_static/clang/include/c++/v1" \
-#     "${CLANG_RESOURCE_DIR}/../../../include/c++/v1"; do \
-#     if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
-#     LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")" && \
-#     LIBCXX_SOURCE="Swift toolchain" && \
-#     echo "✓ Found libc++ in Swift toolchain at ${LIBCXX_INCLUDE_DIR}" && \
-#     break; \
-#     fi; \
-#     done && \
-#     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
-#     echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 17" && \
-#     for candidate in \
-#     "/usr/lib/llvm-17/include/c++/v1" \
-#     "/usr/include/c++/v1"; do \
-#     if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
-#     LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")" && \
-#     LIBCXX_SOURCE="system LLVM 17" && \
-#     echo "✓ Found libc++ in system at ${LIBCXX_INCLUDE_DIR}" && \
-#     break; \
-#     fi; \
-#     done; \
-#     fi && \
-#     if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
-#     echo "ERROR: Unable to locate libc++ headers." && \
-#     echo "Please ensure libc++-17-dev is installed." && \
-#     exit 1; \
-#     fi && \
-#     LIBCXX_LIBRARY_DIR="" && \
-#     if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
-#     for candidate in \
-#     "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" \
-#     "${SWIFT_TOOLCHAIN_DIR}/lib"; do \
-#     if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
-#     LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")" && \
-#     echo "✓ Found libc++ library in Swift toolchain at ${LIBCXX_LIBRARY_DIR}" && \
-#     break; \
-#     fi; \
-#     done; \
-#     fi && \
-#     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
-#     for candidate in \
-#     "/usr/lib/llvm-17/lib" \
-#     "/usr/lib/x86_64-linux-gnu" \
-#     "/usr/lib"; do \
-#     if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
-#     LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")" && \
-#     echo "✓ Found libc++ library at ${LIBCXX_LIBRARY_DIR}" && \
-#     break; \
-#     fi; \
-#     done; \
-#     fi && \
-#     if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
-#     echo "ERROR: Unable to locate libc++ libraries." && \
-#     echo "Please ensure libc++-17-dev is installed." && \
-#     exit 1; \
-#     fi && \
-#     echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
-#     echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
-#     export USE_LIBCXX=1 && \
-#     if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
-#     export CPLUS_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"; \
-#     fi && \
-#     export CXXFLAGS="-stdlib=libc++" && \
-#     export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}" && \
-#     if [ -n "$LIBRARY_PATH" ]; then \
-#     export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
-#     else \
-#     export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"; \
-#     fi && \
-#     OPENMP_C_FLAGS="-fopenmp=libomp" && \
-#     OPENMP_CXX_FLAGS="-fopenmp=libomp" && \
-#     RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")" && \
-#     if [ -n "$OMP_INCLUDE_DIR" ] && [ "$OMP_INCLUDE_DIR" != "$RESOURCE_INCLUDE" ]; then \
-#     OPENMP_C_FLAGS="$OPENMP_C_FLAGS -I${OMP_INCLUDE_DIR}" && \
-#     OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -I${OMP_INCLUDE_DIR}"; \
-#     fi && \
-#     if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
-#     BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
-#     BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
-#     BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}" && \
-#     echo "✓ Using Swift's clang for PyTorch build"; \
-#     else \
-#     if [ -f "/usr/lib/llvm-17/bin/clang" ] && [ -f "/usr/lib/llvm-17/bin/clang++" ]; then \
-#     BUILD_CC="/usr/lib/llvm-17/bin/clang" && \
-#     BUILD_CXX="/usr/lib/llvm-17/bin/clang++" && \
-#     BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-17/lib/clang/17/include" && \
-#     echo "✓ Using system clang-17 for PyTorch build (matches libc++ 17)"; \
-#     else \
-#     echo "⚠ System clang-17 not found, falling back to Swift's clang" && \
-#     BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
-#     BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
-#     BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"; \
-#     fi; \
-#     fi && \
-#     CMAKE_CXX_FLAGS="-stdlib=libc++" && \
-#     if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
-#     CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"; \
-#     else \
-#     CMAKE_PREFIX_PATH="/usr/lib/llvm-17;/usr"; \
-#     fi && \
-#     echo "=== Build Configuration ===" && \
-#     echo "Compiler: ${BUILD_CC}" && \
-#     echo "C++ Compiler: ${BUILD_CXX}" && \
-#     echo "libc++ Source: ${LIBCXX_SOURCE}" && \
-#     echo "libc++ Include: ${LIBCXX_INCLUDE_DIR}" && \
-#     echo "libc++ Library: ${LIBCXX_LIBRARY_DIR}" && \
-#     echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}" && \
-#     echo "===========================" && \
-#     CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
-#     -DCMAKE_C_COMPILER="${BUILD_CC}" \
-#     -DCMAKE_CXX_COMPILER="${BUILD_CXX}" \
-#     -DCMAKE_CXX_STANDARD=17 \
-#     -DCMAKE_CXX_EXTENSIONS=OFF \
-#     -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
-#     -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
-#     -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
-#     -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-#     -DUSE_LIBCXX=ON \
-#     -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
-#     -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
-#     -DOpenMP_C_LIB_NAMES="libomp" \
-#     -DOpenMP_CXX_LIB_NAMES="libomp" \
-#     -DOpenMP_libomp_LIBRARY="${OMP_LIBRARY}" \
-#     -DBUILD_SHARED_LIBS=ON \
-#     -DCMAKE_BUILD_TYPE=Release \
-#     -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
-#     -DBUILD_PYTHON=OFF \
-#     -DBUILD_TEST=OFF \
-#     -DBUILD_CAFFE2=OFF \
-#     -DUSE_DISTRIBUTED=OFF \
-#     -DUSE_MPS=OFF \
-#     -DUSE_CUDA=OFF \
-#     -DUSE_MKLDNN=OFF \
-#     -DUSE_XNNPACK=OFF \
-#     -DUSE_QNNPACK=OFF \
-#     -DUSE_FBGEMM=OFF \
-#     -DPYTHON_EXECUTABLE=$(which python3) \
-#     -D_GLIBCXX_USE_CXX11_ABI=1 \
-#     -GNinja
+RUN . /etc/profile.d/pytorch.sh && \
+    echo "Using OpenMP include: $OMP_INCLUDE_DIR" && \
+    echo "Using OpenMP library: $OMP_LIBRARY" && \
+    cd /tmp/pytorch && \
+    mkdir -p build && \
+    cd build && \
+    \
+    # Step 2: Locate compiler and toolchain directories
+    # We need to know where clang and Swift are installed to configure the build
+    CLANG_RESOURCE_DIR="$(clang++ -print-resource-dir)" && \
+    LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")" && \
+    echo "Clang resource dir: ${CLANG_RESOURCE_DIR}" && \
+    echo "LLVM base dir: ${LLVM_BASE_DIR}" && \
+    SWIFT_BIN="$(which swift)" && \
+    SWIFT_TOOLCHAIN_DIR="$(dirname $(dirname ${SWIFT_BIN}))" && \
+    echo "Swift toolchain dir: ${SWIFT_TOOLCHAIN_DIR}" && \
+    \
+    # Step 3: Find libc++ (C++ standard library)
+    # TaylorTorch uses Swift C++ interop, so PyTorch must use the same C++ stdlib as Swift
+    # Try Swift's bundled libc++ first, then fall back to system LLVM 17
+    LIBCXX_INCLUDE_DIR="" && \
+    LIBCXX_SOURCE="unknown" && \
+    for candidate in \
+    "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
+    "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
+    "${SWIFT_TOOLCHAIN_DIR}/lib/swift_static/clang/include/c++/v1" \
+    "${CLANG_RESOURCE_DIR}/../../../include/c++/v1"; do \
+    if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
+    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")" && \
+    LIBCXX_SOURCE="Swift toolchain" && \
+    echo "✓ Found libc++ in Swift toolchain at ${LIBCXX_INCLUDE_DIR}" && \
+    break; \
+    fi; \
+    done && \
+    if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
+    echo "ℹ Swift toolchain doesn't include libc++, using system LLVM 17" && \
+    for candidate in \
+    "/usr/lib/llvm-17/include/c++/v1" \
+    "/usr/include/c++/v1"; do \
+    if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then \
+    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")" && \
+    LIBCXX_SOURCE="system LLVM 17" && \
+    echo "✓ Found libc++ in system at ${LIBCXX_INCLUDE_DIR}" && \
+    break; \
+    fi; \
+    done; \
+    fi && \
+    if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then \
+    echo "ERROR: Unable to locate libc++ headers." && \
+    echo "Please ensure libc++-17-dev is installed." && \
+    exit 1; \
+    fi && \
+    LIBCXX_LIBRARY_DIR="" && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+    for candidate in \
+    "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" \
+    "${SWIFT_TOOLCHAIN_DIR}/lib"; do \
+    if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
+    LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")" && \
+    echo "✓ Found libc++ library in Swift toolchain at ${LIBCXX_LIBRARY_DIR}" && \
+    break; \
+    fi; \
+    done; \
+    fi && \
+    if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
+    for candidate in \
+    "/usr/lib/llvm-17/lib" \
+    "/usr/lib/x86_64-linux-gnu" \
+    "/usr/lib"; do \
+    if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then \
+    LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")" && \
+    echo "✓ Found libc++ library at ${LIBCXX_LIBRARY_DIR}" && \
+    break; \
+    fi; \
+    done; \
+    fi && \
+    if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then \
+    echo "ERROR: Unable to locate libc++ libraries." && \
+    echo "Please ensure libc++-17-dev is installed." && \
+    exit 1; \
+    fi && \
+    echo "libc++ include dir: ${LIBCXX_INCLUDE_DIR}" && \
+    echo "libc++ library dir: ${LIBCXX_LIBRARY_DIR}" && \
+    export USE_LIBCXX=1 && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+    export CPLUS_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"; \
+    fi && \
+    export CXXFLAGS="-stdlib=libc++" && \
+    export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}" && \
+    if [ -n "$LIBRARY_PATH" ]; then \
+    export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"; \
+    else \
+    export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"; \
+    fi && \
+    OPENMP_C_FLAGS="-fopenmp=libomp" && \
+    OPENMP_CXX_FLAGS="-fopenmp=libomp" && \
+    RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")" && \
+    if [ -n "$OMP_INCLUDE_DIR" ] && [ "$OMP_INCLUDE_DIR" != "$RESOURCE_INCLUDE" ]; then \
+    OPENMP_C_FLAGS="$OPENMP_C_FLAGS -I${OMP_INCLUDE_DIR}" && \
+    OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -I${OMP_INCLUDE_DIR}"; \
+    fi && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+    BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
+    BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
+    BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}" && \
+    echo "✓ Using Swift's clang for PyTorch build"; \
+    else \
+    if [ -f "/usr/lib/llvm-17/bin/clang" ] && [ -f "/usr/lib/llvm-17/bin/clang++" ]; then \
+    BUILD_CC="/usr/lib/llvm-17/bin/clang" && \
+    BUILD_CXX="/usr/lib/llvm-17/bin/clang++" && \
+    BUILD_RESOURCE_INCLUDE="/usr/lib/llvm-17/lib/clang/17/include" && \
+    echo "✓ Using system clang-17 for PyTorch build (matches libc++ 17)"; \
+    else \
+    echo "⚠ System clang-17 not found, falling back to Swift's clang" && \
+    BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang" && \
+    BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++" && \
+    BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"; \
+    fi; \
+    fi && \
+    CMAKE_CXX_FLAGS="-stdlib=libc++" && \
+    if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then \
+    CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"; \
+    else \
+    CMAKE_PREFIX_PATH="/usr/lib/llvm-17;/usr"; \
+    fi && \
+    echo "=== Build Configuration ===" && \
+    echo "Compiler: ${BUILD_CC}" && \
+    echo "C++ Compiler: ${BUILD_CXX}" && \
+    echo "libc++ Source: ${LIBCXX_SOURCE}" && \
+    echo "libc++ Include: ${LIBCXX_INCLUDE_DIR}" && \
+    echo "libc++ Library: ${LIBCXX_LIBRARY_DIR}" && \
+    echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}" && \
+    echo "===========================" && \
+    CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
+    -DCMAKE_C_COMPILER="${BUILD_CC}" \
+    -DCMAKE_CXX_COMPILER="${BUILD_CXX}" \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_CXX_EXTENSIONS=OFF \
+    -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
+    -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-stdlib=libc++ -L${LIBCXX_LIBRARY_DIR} -Wl,-rpath,${LIBCXX_LIBRARY_DIR}" \
+    -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+    -DUSE_LIBCXX=ON \
+    -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
+    -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
+    -DOpenMP_C_LIB_NAMES="libomp" \
+    -DOpenMP_CXX_LIB_NAMES="libomp" \
+    -DOpenMP_libomp_LIBRARY="${OMP_LIBRARY}" \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/opt/pytorch \
+    -DBUILD_PYTHON=OFF \
+    -DBUILD_TEST=OFF \
+    -DBUILD_CAFFE2=OFF \
+    -DUSE_DISTRIBUTED=OFF \
+    -DUSE_MPS=OFF \
+    -DUSE_CUDA=OFF \
+    -DUSE_MKLDNN=OFF \
+    -DUSE_XNNPACK=OFF \
+    -DUSE_QNNPACK=OFF \
+    -DUSE_FBGEMM=OFF \
+    -DPYTHON_EXECUTABLE=$(which python3) \
+    -D_GLIBCXX_USE_CXX11_ABI=1 \
+    -GNinja
 
 # # Stage 4: Build PyTorch (this is the resource-intensive step)
 # # Using MAX_JOBS=2 to avoid OOM on GitHub Actions runners (7GB RAM limit)
 # # Adding error logging to capture build failures
-# RUN set -ex && \
-#     cd /tmp/pytorch/build && \
-#     echo "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..." && \
-#     cmake --build . --target install -j${MAX_JOBS} 2>&1 | tee /tmp/pytorch-build.log || \
-#     (echo "=== BUILD FAILED ===" && \
-#     echo "Last 100 lines of build log:" && \
-#     tail -n 100 /tmp/pytorch-build.log && \
-#     exit 1)
+RUN set -ex && \
+    cd /tmp/pytorch/build && \
+    echo "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..." && \
+    cmake --build . --target install -j${MAX_JOBS} 2>&1 | tee /tmp/pytorch-build.log || \
+    (echo "=== BUILD FAILED ===" && \
+    echo "Last 100 lines of build log:" && \
+    tail -n 100 /tmp/pytorch-build.log && \
+    exit 1)
 
 # Stage 5: Cleanup after PyTorch build
 # cmake --target install already installed to /opt/pytorch, so just cleanup
-# RUN rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
-#     echo "PyTorch installation complete" && \
-#     echo "Verifying PyTorch library installation:" && \
-#     ls -lh /opt/pytorch/lib/ | head -20
+RUN rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
+    echo "PyTorch installation complete" && \
+    echo "Verifying PyTorch library installation:" && \
+    ls -lh /opt/pytorch/lib/ | head -20
 
 # Try with pre-build torch version
-RUN wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.8.0%2Bcpu.zip && \
-    unzip libtorch-shared-with-deps-2.8.0+cpu.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
+# RUN wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.8.0%2Bcpu.zip && \
+#     unzip libtorch-shared-with-deps-2.8.0+cpu.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
 
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \
