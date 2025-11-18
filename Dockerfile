@@ -87,10 +87,11 @@ RUN pip3 install --break-system-packages \
 
 # Install Swiftly (Swift toolchain manager)
 # Install Swiftly (Swift toolchain manager) using the new manual method
+# Skip install of default toolchain when installing swiftly
 RUN ARCH=$(uname -m) && \
     curl -f -L -O "https://download.swift.org/swiftly/linux/swiftly-${ARCH}.tar.gz" && \
     tar zxf "swiftly-${ARCH}.tar.gz" && \
-    ./swiftly init --quiet-shell-followup && \
+    ./swiftly init --quiet-shell-followup --skip-install && \
     rm "swiftly-${ARCH}.tar.gz"
 
 # Add swiftly to the PATH. **Note: The install path is different!**
@@ -188,7 +189,7 @@ RUN git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
     git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
     https://github.com/pytorch/pytorch.git /tmp/pytorch)
 
-# Stage 2: Update submodules (checkout is already done by the clone)
+# # Stage 2: Update submodules (checkout is already done by the clone)
 RUN cd /tmp/pytorch && \
     git submodule sync && \
     git submodule update --init --depth=1 --recursive
@@ -357,11 +358,12 @@ RUN . /etc/profile.d/pytorch.sh && \
     -DUSE_QNNPACK=OFF \
     -DUSE_FBGEMM=OFF \
     -DPYTHON_EXECUTABLE=$(which python3) \
+    -D_GLIBCXX_USE_CXX11_ABI=1 \
     -GNinja
 
-# Stage 4: Build PyTorch (this is the resource-intensive step)
-# Using MAX_JOBS=2 to avoid OOM on GitHub Actions runners (7GB RAM limit)
-# Adding error logging to capture build failures
+# # Stage 4: Build PyTorch (this is the resource-intensive step)
+# # Using MAX_JOBS=2 to avoid OOM on GitHub Actions runners (7GB RAM limit)
+# # Adding error logging to capture build failures
 RUN set -ex && \
     cd /tmp/pytorch/build && \
     echo "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..." && \
@@ -377,6 +379,10 @@ RUN rm -rf /tmp/pytorch /tmp/pytorch-build.log && \
     echo "PyTorch installation complete" && \
     echo "Verifying PyTorch library installation:" && \
     ls -lh /opt/pytorch/lib/ | head -20
+
+# Try with pre-build torch version
+# RUN wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.8.0%2Bcpu.zip && \
+#     unzip libtorch-shared-with-deps-2.8.0+cpu.zip -d /opt/ && mv /opt/libtorch /opt/pytorch
 
 # Set up PyTorch library paths
 RUN echo "/opt/pytorch/lib" > /etc/ld.so.conf.d/pytorch.conf && \

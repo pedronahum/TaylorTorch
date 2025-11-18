@@ -59,7 +59,10 @@ extension KeyPathIterable {
       result.append(kp)
       if let nested = self[keyPath: kp] as? _KeyPathIterableBase {
         for nkp in nested._recursivelyAllKeyPathsTypeErased {
-          result.append(kp.appending(path: nkp)!)
+          guard let newFullKeyPath = kp.appending(path: nkp) else {
+            continue
+          }
+          result.append(newFullKeyPath)
         }
       }
     }

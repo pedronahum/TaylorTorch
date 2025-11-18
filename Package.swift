@@ -27,6 +27,7 @@ func firstExistingPath(_ candidates: [String?]) -> String? {
 let swiftLibDir = "\(swiftToolchainDir)/lib/swift"
 let swiftClangIncludeDir = "\(swiftLibDir)/clang/include"
 let swiftIncludeDir = "\(swiftToolchainDir)/include"
+
 let swiftBridgingIncludeDir: String? = {
     let candidates: [String?] = [
         ProcessInfo.processInfo.environment["SWIFT_BRIDGING_INCLUDE_DIR"],
@@ -86,6 +87,9 @@ if let cStandardLibraryModuleMap {
     commonSwiftSettings.append(
         .unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
 }
+/*if let clangLibcxxDir {
+    commonSwiftSettings.append(.unsafeFlags(["-Xcc", "-isystem", "-Xcc", clangLibcxxDir]))
+}*/
 
 // On Linux, use --whole-archive to force inclusion of all PyTorch operator symbols
 // These symbols are in static registration sections that get optimized out without this flag
@@ -182,8 +186,9 @@ if let cStandardLibraryModuleMap {
     let platformCxxSettings: [CXXSetting] = [
         // Use libstdc++ (what PyTorch actually uses in Docker)
         .unsafeFlags(["-stdlib=libstdc++"]),
+        //.unsafeFlags(["-stdlib=libc++"]),
         // Use old ABI (ABI=0) to match Docker PyTorch build
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "0")
+        .define("_GLIBCXX_USE_CXX11_ABI", to: "1"),
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
@@ -245,7 +250,6 @@ let package = Package(
             cxxSettings: allAtenCxxDoctestSettings,
             linkerSettings: atenDoctestsLinkerSettings
         ),
-
         // ----------------- Swift Targets -----------------
         .target(
             name: "Torch",
@@ -256,6 +260,7 @@ let package = Package(
                 "Modules/Context/readme.md", "Modules/Layers/readme.md", "Modules/Graph/readme.md",
                 "Data/README.md",
             ],
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -265,6 +270,7 @@ let package = Package(
             name: "MNISTExample",
             dependencies: ["Torch"],
             path: "Examples/MNIST",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -272,6 +278,7 @@ let package = Package(
             name: "ANKIExample",
             dependencies: ["Torch"],
             path: "Examples/ANKI",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -279,15 +286,16 @@ let package = Package(
             name: "KARATEExample",
             dependencies: ["Torch"],
             path: "Examples/KARATE",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
-
         // ----------------- Test Targets -----------------
         .testTarget(
             name: "TensorTests",
             dependencies: ["Torch"],
             path: "Tests/TensorTests",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
@@ -295,6 +303,7 @@ let package = Package(
             name: "TorchTests",
             dependencies: ["Torch"],
             path: "Tests/TorchTests",
+            cxxSettings: allAtenCxxSettings,
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
