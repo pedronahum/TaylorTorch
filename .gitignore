@@ -12,4 +12,5 @@ DerivedData/
 .clj-kondo/
 .build/
 .cache/
+.claude
 docs/

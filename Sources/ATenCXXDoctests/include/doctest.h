@@ -491,20 +491,10 @@ DOCTEST_GCC_SUPPRESS_WARNING_POP
 #endif
 #endif // DOCTEST_CONFIG_USE_IOSFWD
 
-// for clang - always include ciso646 (which drags some std stuff) because
-// we want to check if we are using libc++ with the _LIBCPP_VERSION macro in
-// which case we don't want to forward declare stuff from std - for reference:
-// https://github.com/doctest/doctest/issues/126
-// https://github.com/doctest/doctest/issues/356
-#if DOCTEST_CLANG
-#include <ciso646>
-#endif // clang
-
-#ifdef _LIBCPP_VERSION
+// Force use of std headers to avoid forward declaration issues
 #ifndef DOCTEST_CONFIG_USE_STD_HEADERS
 #define DOCTEST_CONFIG_USE_STD_HEADERS
 #endif
-#endif // _LIBCPP_VERSION
 
 #ifdef DOCTEST_CONFIG_USE_STD_HEADERS
 #ifndef DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

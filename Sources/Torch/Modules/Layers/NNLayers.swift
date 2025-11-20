@@ -420,7 +420,7 @@ public struct Conv2D: Layer {
     let (kH, kW) = kernelSize
     let fanIn = inChannels / groups * kH * kW
     let fanOut = outChannels * kH * kW
-    let a = Float(Foundation.sqrt(6.0 / Double(fanIn + fanOut)))
+    let a = Float((6.0 / Double(fanIn + fanOut)).squareRoot())
 
     self.weight = Tensor.uniform(
       low: -Double(a), high: Double(a),
@@ -1393,7 +1393,7 @@ extension Conv2D {
     // PyTorch-style Kaiming uniform: bound = √3 * std, std = gain / √fan
     let gain = Double(Self._kaimingGain(nonlinearity))
     let std = gain / Double(fan).squareRoot()
-    let bound = Foundation.sqrt(3.0) * std
+    let bound = 3.0.squareRoot() * std
 
     self.weight = Tensor.uniform(
       low: -bound, high: bound,

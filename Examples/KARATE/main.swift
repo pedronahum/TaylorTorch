@@ -219,14 +219,10 @@ struct KarateExample {
     let (g, y, trainIdx, testIdx) = buildKarateGraphs()
 
     // Model & optimizer
+    // Note: Using SGD instead of Adam due to keypath issues with complex models on Linux
+    // See KNOWN_ISSUES.md for details
     var model = KarateGNN()
-    let opt = Adam(
-      for: model,
-      learningRate: 0.01,
-      beta1: 0.9,
-      beta2: 0.999,
-      epsilon: 1e-8,
-      weightDecay: 0.0)
+    var opt = SGD(for: model, learningRate: 0.001, momentum: 0.9)
 
     print("Karate Club • nodes: \(g.nNode[0]), edges: \(g.nEdge[0])")
     print("Train: \(trainIdx.count) nodes • Test: \(testIdx.count) nodes")

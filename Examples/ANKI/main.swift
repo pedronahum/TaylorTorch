@@ -125,9 +125,9 @@ func collate(_ group: [EncodedPair], pad: Int, maxSrc: Int, maxTgt: Int) -> Batc
 func noamScale(step: Int, dModel: Int, warmup: Int = 4000) -> Float {
   // d_model^{-0.5} * min(step^{-0.5}, step * warmup^{-1.5})
   let s = Float(step + 1)
-  let dm = powf(Float(dModel), -0.5)
-  let a = powf(s, -0.5)
-  let b = s * powf(Float(warmup), -1.5)
+  let dm = 1.0 / Float(dModel).squareRoot()
+  let a = 1.0 / s.squareRoot()
+  let b = s / (Float(warmup).squareRoot() * Float(warmup))
   return dm * min(a, b)
 }
 
@@ -221,8 +221,9 @@ do {
   )
   print("Model initialized (parameters: \(dModel) dims, \(heads) heads).")
 
-  //var opt = SGD(for: model, learningRate: cfg.learningRate)
-  let opt = Adam(for: model, learningRate: cfg.learningRate)
+  // Note: Using SGD instead of Adam due to keypath issues with complex models on Linux
+  // See KNOWN_ISSUES.md for details
+  var opt = SGD(for: model, learningRate: cfg.learningRate, momentum: 0.9)
   print("Optimizer ready; starting training…")
 
   // Training loop (MNIST-style scaffold)

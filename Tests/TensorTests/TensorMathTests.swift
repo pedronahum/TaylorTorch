@@ -19,7 +19,8 @@ func unaryOperationsBehave() throws {
 
   // ✅ Break down the expression to remove ambiguity
   let value = expValues.first ?? 0.0
-  let expected = Foundation.exp(1.0)
+  // Use Darwin.M_E (Euler's number) instead of Foundation.exp to avoid SIL linker issues
+  let expected = 2.718281828459045  // e^1
   let difference = Swift.abs(value - expected)
   #expect(difference < 1e-6)
 }

@@ -99,16 +99,16 @@ public func divide<T: TorchArithmetic>(
 
 /// A differentiable scalar power.
 @differentiable(reverse)
-public func pow<T: TorchArithmetic>(
+public func power<T: TorchArithmetic>(
   _ tensor: Tensor,
-  _ power: T
+  _ exponent: T
 ) -> Tensor {
-  return tensor.pow(power)
+  return tensor.pow(exponent)
 }
 
 /// A differentiable tensor power.
 @differentiable(reverse)
-public func pow(_ tensor: Tensor, _ other: Tensor) -> Tensor {
+public func power(_ tensor: Tensor, _ other: Tensor) -> Tensor {
   return tensor.pow(other)
 }
 

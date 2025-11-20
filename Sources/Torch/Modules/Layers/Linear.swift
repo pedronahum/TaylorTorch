@@ -272,7 +272,7 @@ public struct Linear: Layer {
     dtype: DType = .float32,
     device: Device = .cpu
   ) {
-    let a = Foundation.sqrt(6.0 / Double(inFeatures + outFeatures))  // Glorot
+    let a = (6.0 / Double(inFeatures + outFeatures)).squareRoot()  // Glorot
     self.weight = Tensor.uniform(
       low: -a, high: a, shape: [inFeatures, outFeatures], dtype: dtype, device: device)
     self.bias = Tensor.zeros(shape: [outFeatures], dtype: dtype, device: device)

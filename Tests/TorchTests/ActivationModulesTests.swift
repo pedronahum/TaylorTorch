@@ -76,7 +76,7 @@ func gelu_approx_parity() throws {
   let (_, pbLayer) = valueWithPullback(at: x) { layer($0).sum() }
   let gLayer = pbLayer(Tensor(1.0, dtype: .float64))
 
-  let kappa = Tensor(Foundation.sqrt(2.0 / Double.pi))
+  let kappa = Tensor((2.0 / Double.pi).squareRoot())
   let (_, pbRef) = valueWithPullback(at: x) { x in
     let inner = x.adding(0.044715 * x.multiplying(x).multiplying(x))
     return (0.5 * x).multiplying(1.0 + (kappa.multiplying(inner)).tanh()).sum()

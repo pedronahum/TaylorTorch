@@ -508,7 +508,7 @@ public struct MultiHeadAttention: Layer {
     self.embedDim = embedDim
     self.numHeads = numHeads
 
-    let a = Foundation.sqrt(6.0 / Double(embedDim + embedDim))  // Glorot-style span
+    let a = (6.0 / Double(embedDim + embedDim)).squareRoot()  // Glorot-style span
     self.wq = Tensor.uniform(
       low: -a, high: a, shape: [embedDim, embedDim], dtype: dtype, device: device)
     self.wk = Tensor.uniform(
@@ -567,7 +567,7 @@ public struct MultiHeadAttention: Layer {
     let vh = splitHeads(v)  // [N, H, Lk, Dh]
 
     // Scaled dot-product attention
-    let scale = 1.0 / Foundation.sqrt(Float(headDim))
+    let scale = 1.0 / Float(headDim).squareRoot()
     var scores = qh.matmul(kh.transposed(-2, -1)).multiplying(scale)  // [N, H, Lq, Lk]
     if let mask = input.mask {
       // Mask is broadcastable to [N, H, Lq, Lk]; true = masked
@@ -600,7 +600,7 @@ extension MultiHeadAttention {
       let kh = s.splitHeads(k)
       let vh = s.splitHeads(v)
 
-      let scale = 1.0 / Foundation.sqrt(Float(s.headDim))
+      let scale = 1.0 / Float(s.headDim).squareRoot()
       var scores = qh.matmul(kh.transposed(-2, -1)).multiplying(scale)
       if let mask = i.mask {
         scores = scores.maskedFill(where: mask, with: -Float.greatestFiniteMagnitude)

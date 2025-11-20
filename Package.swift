@@ -87,6 +87,19 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags(["-Xcc", "-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
 }
 
+// On Linux, configure Swift to use libstdc++ properly
+#if os(Linux)
+commonSwiftSettings += [
+    // Add libstdc++ include paths before Swift's clang includes
+    .unsafeFlags(["-Xcc", "-isystem/usr/include/c++/13"]),
+    .unsafeFlags(["-Xcc", "-isystem/usr/include/x86_64-linux-gnu/c++/13"]),
+    .unsafeFlags(["-Xcc", "-isystem/usr/include/c++/13/backward"]),
+    .unsafeFlags(["-Xcc", "-isystem/usr/lib/gcc/x86_64-linux-gnu/13/include"]),
+    .unsafeFlags(["-Xcc", "-isystem/usr/include"]),
+    .unsafeFlags(["-Xcc", "-isystem/usr/include/x86_64-linux-gnu"]),
+]
+#endif
+
 // On Linux, use --whole-archive to force inclusion of all PyTorch operator symbols
 // These symbols are in static registration sections that get optimized out without this flag
 #if os(Linux)
@@ -95,7 +108,7 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            // C++ libraries - using libstdc++ (what PyTorch actually uses in Docker)
+            // C++ libraries - using libstdc++ (what PyTorch is built with)
             "-Xlinker", "-lstdc++",
             "-Xlinker", "-lm",
             // PyTorch libraries in --whole-archive block
@@ -180,17 +193,22 @@ if let cStandardLibraryModuleMap {
 // Platform-specific CXX settings for Linux
 #if os(Linux)
     let platformCxxSettings: [CXXSetting] = [
-        // Use libstdc++ (what PyTorch actually uses in Docker)
-        .unsafeFlags(["-stdlib=libstdc++"]),
-        // Use old ABI (ABI=0) to match Docker PyTorch build
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "0")
+        // libstdc++ headers
+        .unsafeFlags(["-isystem", "/usr/include/c++/13"]),
+        .unsafeFlags(["-isystem", "/usr/include/x86_64-linux-gnu/c++/13"]),
+        .unsafeFlags(["-isystem", "/usr/include/c++/13/backward"]),
+        // GCC internal includes
+        .unsafeFlags(["-isystem", "/usr/lib/gcc/x86_64-linux-gnu/13/include"]),
+        // System C includes
+        .unsafeFlags(["-isystem", "/usr/include"]),
+        .unsafeFlags(["-isystem", "/usr/include/x86_64-linux-gnu"]),
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []
 #endif
 
-// Combined CXX settings
-let allAtenCxxSettings = atenCxxSettings + platformCxxSettings
+// Combined CXX settings - platform settings first for correct include order
+let allAtenCxxSettings = platformCxxSettings + atenCxxSettings
 
 var atenCxxDoctestSettings: [CXXSetting] = [
     .define("DOCTEST_CONFIG_NO_SHORT_MACRO_NAMES"),
@@ -213,8 +231,8 @@ if let cStandardLibraryModuleMap {
     atenCxxDoctestSettings.append(.unsafeFlags(["-fmodule-map-file=\(cStandardLibraryModuleMap)"]))
 }
 
-// Combined CXX doctest settings
-let allAtenCxxDoctestSettings = atenCxxDoctestSettings + platformCxxSettings
+// Combined CXX doctest settings - platform settings first for correct include order
+let allAtenCxxDoctestSettings = platformCxxSettings + atenCxxDoctestSettings
 
 let package = Package(
     name: "TaylorTorch",
@@ -230,23 +248,32 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
     ],
-    targets: [
-        // ----------------- C++ Targets -----------------
-        .target(
-            name: "ATenCXX",
-            path: "Sources/ATenCXX",
-            publicHeadersPath: "include",
-            cxxSettings: allAtenCxxSettings
-        ),
-        .executableTarget(
-            name: "ATenCXXDoctests",
-            dependencies: ["ATenCXX"],
-            path: "Sources/ATenCXXDoctests",
-            cxxSettings: allAtenCxxDoctestSettings,
-            linkerSettings: atenDoctestsLinkerSettings
-        ),
+    targets: {
+        var targets: [Target] = [
+            // ----------------- C++ Targets -----------------
+            .target(
+                name: "ATenCXX",
+                path: "Sources/ATenCXX",
+                publicHeadersPath: "include",
+                cxxSettings: allAtenCxxSettings
+            ),
+        ]
+
+        // ATenCXXDoctests 
+        
+        targets.append(
+            .executableTarget(
+                name: "ATenCXXDoctests",
+                dependencies: ["ATenCXX"],
+                path: "Sources/ATenCXXDoctests",
+                cxxSettings: allAtenCxxDoctestSettings,
+                linkerSettings: atenDoctestsLinkerSettings
+            )
+        )
+        
 
         // ----------------- Swift Targets -----------------
+        targets += [
         .target(
             name: "Torch",
             dependencies: ["ATenCXX"],
@@ -298,6 +325,9 @@ let package = Package(
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
-    ],
+        ]
+
+        return targets
+    }(),
     cxxLanguageStandard: .cxx17
 )

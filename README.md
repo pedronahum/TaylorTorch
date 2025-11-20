@@ -82,25 +82,69 @@ These examples serve as a practical guide and a starting point for your own proj
 
 Please read this section carefully before building the project.
 
-This initial release of TaylorTorch has been tested exclusively with the following configuration:
+## Supported Platforms
 
-* PyTorch: Version 2.8.0, compiled from source, CPU only.
+TaylorTorch has been tested on the following configurations:
 
-* Platform: Mac with Apple Silicon (ARM), CPU only.
+| Platform | Swift Version | PyTorch | Status |
+|----------|---------------|---------|--------|
+| **macOS** (Apple Silicon) | 6.3-dev (main-snapshot-2025-11-03) | 2.8.0 (CPU) | ✅ Fully supported |
+| **Ubuntu 24.04** | 6.3-dev (main-snapshot-2025-11-03) | 2.8.0 (CPU) | ✅ Supported (with [known issues](KNOWN_ISSUES.md)) |
 
-* Swift: Version 6.3-dev (swift-DEVELOPMENT-SNAPSHOT-2025-10-02, LLVM 0d0246569621d5b, Swift 199240b3fe97eda).
+GPU support (CUDA/Metal) is not yet implemented.
 
-Support for other platforms (Linux, Windows), hardware (GPUs), or different PyTorch versions is not yet confirmed.
+## Installation
 
-## Important Configuration Step
+### macOS
 
-To successfully build the project, you must manually update several paths.
+For macOS installation, refer to the [GitHub Actions workflow](.github/workflows/macos-ci.yml) which demonstrates the complete build process including:
+- Installing Swift development snapshots via Swiftly
+- Building PyTorch from source with compatible compilers
+- Configuring environment variables
 
-* LibTorch Paths: In the Package.swift file, update the header and library search paths to point to the correct locations where your compiled PyTorch library is stored.
+### Ubuntu 24.04
 
-* C++ Interop Macros: Given the project's use of C++ interoperability and custom macros, you also need to ensure the location of the Customization Macros in <swift/bridging> is correctly configured in your build settings.
+For Ubuntu, we provide an automated installation script:
 
-Failure to update these paths will result in build errors.
+```bash
+./scripts/install-taylortorch-ubuntu.sh
+```
+
+This script handles:
+- Installing all system dependencies
+- Installing Swift via Swiftly
+- Building PyTorch from source with the correct compiler (Swift's clang with libstdc++)
+- Configuring environment variables
+
+See [scripts/README.md](scripts/README.md) for detailed usage options and troubleshooting.
+
+For CI/Docker environments, refer to the [Ubuntu CI workflow](.github/workflows/ubuntu-ci.yml) and the [Dockerfile](Dockerfile).
+
+## Required Environment Variables
+
+Before building TaylorTorch, you must set these environment variables:
+
+```bash
+export SWIFT_TOOLCHAIN_DIR="/path/to/swiftly/toolchains/main-snapshot-2025-11-03/usr"
+export PYTORCH_INSTALL_DIR="/opt/pytorch"  # or your PyTorch install location
+export PATH="/path/to/swiftly/bin:$PATH"
+```
+
+On Ubuntu, these are automatically configured when you source the environment files created by the install script:
+
+```bash
+source /etc/profile.d/swift.sh
+source /etc/profile.d/pytorch.sh
+```
+
+## Known Issues
+
+Linux builds may encounter some Swift autodiff-related issues. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for:
+- SIL linker crashes with C library math functions (exp, log, sqrt, pow)
+- Autodiff crashes with for-in loops
+- Adam optimizer KeyPath issues with complex models
+
+These issues are specific to Linux and do not affect macOS builds.
 
 # What does TaylorTorch looks like?
 
