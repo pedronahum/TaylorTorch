@@ -1,4 +1,5 @@
 import Foundation
+import RealModuleDifferentiable
 import Testing
 import _Differentiation
 
@@ -250,39 +251,13 @@ func softplusForwardAndBackward() throws {
     softplus(tensor)
   }
 
-  // Pure Swift exp implementation to avoid SIL linker issues with C library functions
-  func swiftExp(_ x: Double) -> Double {
-    var result = 1.0
-    var term = 1.0
-    for i in 1...30 {
-      term *= x / Double(i)
-      result += term
-    }
-    return result
-  }
-
-  func swiftLog1p(_ x: Double) -> Double {
-    // log1p(x) = log(1 + x)
-    let y = 1.0 + x
-    if y <= 0 { return -.infinity }
-    var result = 0.0
-    var term = (y - 1) / (y + 1)
-    let term2 = term * term
-    for i in stride(from: 1, through: 31, by: 2) {
-      result += term / Double(i)
-      term *= term2
-    }
-    return 2.0 * result
-  }
-
-  let expectedForward = values.map { v -> Double in swiftLog1p(swiftExp(v)) }
+  // Use RealModuleDifferentiable for proper differentiable math functions
+  let expectedForward = values.map { v -> Double in Double.log(onePlus: Double.exp(v)) }
   let expectedTensor = Tensor(array: expectedForward, shape: [3])
-  // Use looser tolerance due to Taylor series approximation precision
-  #expect(value.isClose(to: expectedTensor, rtol: 1e-4, atol: 1e-4))
+  #expect(value.isClose(to: expectedTensor, rtol: 1e-6, atol: 1e-6))
 
   let grad = pullback(Tensor(array: [1.0, 1.0, 1.0], shape: [3]))
-  let gradValues = values.map { v -> Double in 1.0 / (1.0 + swiftExp(-v)) }
+  let gradValues = values.map { v -> Double in 1.0 / (1.0 + Double.exp(-v)) }
   let expectedGrad = Tensor(array: gradValues, shape: [3])
-  // Use looser tolerance due to Taylor series approximation precision
-  #expect(grad.isClose(to: expectedGrad, rtol: 1e-4, atol: 1e-4))
+  #expect(grad.isClose(to: expectedGrad, rtol: 1e-6, atol: 1e-6))
 }

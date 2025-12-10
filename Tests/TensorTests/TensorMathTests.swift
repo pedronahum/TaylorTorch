@@ -1,4 +1,5 @@
 import Foundation
+import RealModuleDifferentiable
 import Testing
 
 @testable import Torch
@@ -17,10 +18,9 @@ func unaryOperationsBehave() throws {
   let expTensor = Tensor.full(1.0, shape: [1]).exp()
   let expValues = expTensor.toArray(as: Double.self)
 
-  // ✅ Break down the expression to remove ambiguity
+  // Use RealModuleDifferentiable for proper differentiable exp function
   let value = expValues.first ?? 0.0
-  // Use Darwin.M_E (Euler's number) instead of Foundation.exp to avoid SIL linker issues
-  let expected = 2.718281828459045  // e^1
+  let expected = Double.exp(1.0)  // e^1 using differentiable exp
   let difference = Swift.abs(value - expected)
   #expect(difference < 1e-6)
 }

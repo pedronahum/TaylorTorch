@@ -1,5 +1,5 @@
 {
-  "originHash" : "bd1bc55946c8379802dfbf685b37b88c43fcaf8cbdd1a3bf03927c47db0c8b08",
+  "originHash" : "fe71cff2251085370000f57e815569e878b6e7f8de0d500f90a7ce0ed1e9cfa1",
   "pins" : [
     {
       "identity" : "swift-docc-plugin",
@@ -17,6 +17,24 @@
       "state" : {
         "revision" : "b45d1f2ed151d057b54504d653e0da5552844e34",
         "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "swift-numerics",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-numerics",
+      "state" : {
+        "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
+        "version" : "1.1.1"
+      }
+    },
+    {
+      "identity" : "swift-numerics-differentiable",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/differentiable-swift/swift-numerics-differentiable",
+      "state" : {
+        "revision" : "4dfc117b844be262c20b0a687a722f766b9d5284",
+        "version" : "1.3.0"
       }
     }
   ],

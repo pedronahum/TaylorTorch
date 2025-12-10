@@ -17,6 +17,11 @@ import Foundation
 @_spi(Reflection) import Swift
 import _Differentiation
 
+// Re-export RealModuleDifferentiable so users get access to differentiable
+// scalar math functions (Double.exp, Float.log, etc.) without SIL linker crashes.
+// See KNOWN_ISSUES.md for details on why this is needed on Linux.
+@_exported import RealModuleDifferentiable
+
 // Global lock and caches to ensure thread safety for reflection operations and
 // to avoid recomputing reflection results for better performance.
 private let reflectionLock = NSRecursiveLock()

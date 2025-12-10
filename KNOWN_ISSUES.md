@@ -29,7 +29,54 @@ These errors occur because the Swift autodiff system generates derivative code t
 - `sqrt()`, `sqrtf()` - square root
 - `pow()`, `powf()` - power
 
-### Workarounds
+### Solution: Use swift-numerics-differentiable
+
+The recommended solution is to use the [swift-numerics-differentiable](https://github.com/differentiable-swift/swift-numerics-differentiable) package, which provides pure Swift implementations of math functions with properly registered derivatives for autodiff.
+
+#### Installation
+
+Add to `Package.swift`:
+```swift
+dependencies: [
+    .package(url: "https://github.com/differentiable-swift/swift-numerics-differentiable", from: "1.3.0"),
+],
+```
+
+Add dependency to targets:
+```swift
+.target(
+    name: "YourTarget",
+    dependencies: [
+        .product(name: "RealModuleDifferentiable", package: "swift-numerics-differentiable"),
+    ],
+),
+```
+
+#### Usage
+
+TaylorTorch re-exports `RealModuleDifferentiable`, so simply `import Torch` gives you access to differentiable scalar math:
+
+```swift
+import Torch
+
+// Instead of Foundation.exp (crashes):
+let result = Double.exp(x)
+
+// Instead of Foundation.log (crashes):
+let result = Double.log(x)
+
+// Instead of log1p (crashes):
+let result = Double.log(onePlus: x)
+
+// Instead of pow (crashes):
+let result = Double.pow(x, y)
+```
+
+These functions work correctly with Swift autodiff because they are pure Swift implementations with derivatives properly registered via `@derivative` attributes.
+
+### Alternative Workarounds
+
+If you cannot use swift-numerics-differentiable, these workarounds are still available:
 
 #### 1. Replace `sqrt` with `.squareRoot()`
 
@@ -55,55 +102,14 @@ let a = 1.0 / x.squareRoot()
 let b = 1.0 / (x.squareRoot() * x)
 ```
 
-#### 3. Replace `exp` with hardcoded constants or Taylor series
-
-For simple cases like `exp(1.0)`:
-```swift
-// Before
-let e = exp(1.0)
-
-// After
-let e = 2.718281828459045  // Euler's number
-```
-
-For test code that needs `exp` computations, use a pure Swift Taylor series:
-```swift
-func swiftExp(_ x: Double) -> Double {
-    var result = 1.0
-    var term = 1.0
-    for i in 1...30 {
-        term *= x / Double(i)
-        result += term
-    }
-    return result
-}
-```
-
-#### 4. Replace `log1p` with Mercator series
-
-```swift
-func swiftLog1p(_ x: Double) -> Double {
-    let y = 1.0 + x
-    if y <= 0 { return -.infinity }
-    var result = 0.0
-    var term = (y - 1) / (y + 1)
-    let term2 = term * term
-    for i in stride(from: 1, through: 31, by: 2) {
-        result += term / Double(i)
-        term *= term2
-    }
-    return 2.0 * result
-}
-```
-
-**Note**: Taylor/Mercator series approximations lose precision for larger values. Tests using these should use looser tolerances (e.g., `1e-4` instead of `1e-6`).
-
 ### Files Modified
 
+- `Package.swift` - Added `swift-numerics-differentiable` dependency
+- `Sources/Torch/Core/EuclideanDifferentiable.swift` - Re-exports `RealModuleDifferentiable` so users get it automatically
 - `Examples/ANKI/main.swift` - Replaced `powf` with `.squareRoot()`
 - `Sources/Torch/Modules/Initializers.swift` - Replaced `sqrt` with `.squareRoot()`
-- `Tests/TensorTests/TensorMathTests.swift` - Replaced `Foundation.exp(1.0)` with constant
-- `Tests/TorchTests/LossTests.swift` - Added pure Swift `swiftExp` and `swiftLog1p`
+- `Tests/TensorTests/TensorMathTests.swift` - Uses `Double.exp()` from RealModuleDifferentiable
+- `Tests/TorchTests/LossTests.swift` - Uses `Double.exp()` and `Double.log(onePlus:)` from RealModuleDifferentiable
 - `Tests/TorchTests/ActivationModulesTests.swift` - Replaced `Foundation.sqrt` with `.squareRoot()`
 
 ---
@@ -169,6 +175,7 @@ var opt = SGD(for: model, learningRate: 0.01, momentum: 0.9)
 
 - `Examples/ANKI/main.swift` - Switched from Adam to SGD optimizer
 - `Examples/KARATE/main.swift` - Switched from Adam to SGD with LR 0.001 (higher rates cause NaN)
+- `Tests/TorchTests/SequentialLayerTests.swift` - Disabled `sequential_parameter_keypaths_and_flattening` test
 
 ---
 

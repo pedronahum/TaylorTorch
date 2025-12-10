@@ -246,7 +246,8 @@ let package = Package(
         .executable(name: "KARATEExample", targets: ["KARATEExample"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0")
+        .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+        .package(url: "https://github.com/differentiable-swift/swift-numerics-differentiable", from: "1.3.0"),
     ],
     targets: {
         var targets: [Target] = [
@@ -276,7 +277,10 @@ let package = Package(
         targets += [
         .target(
             name: "Torch",
-            dependencies: ["ATenCXX"],
+            dependencies: [
+                "ATenCXX",
+                .product(name: "RealModuleDifferentiable", package: "swift-numerics-differentiable"),
+            ],
             exclude: [
                 "readme.md", "ATen/readme.md", "ATen/Core/Tensor/readme.md", "Core/readme.md",
                 "Optimizers/readme.md", "Modules/readme.md",
@@ -313,14 +317,20 @@ let package = Package(
         // ----------------- Test Targets -----------------
         .testTarget(
             name: "TensorTests",
-            dependencies: ["Torch"],
+            dependencies: [
+                "Torch",
+                .product(name: "RealModuleDifferentiable", package: "swift-numerics-differentiable"),
+            ],
             path: "Tests/TensorTests",
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
         ),
         .testTarget(
             name: "TorchTests",
-            dependencies: ["Torch"],
+            dependencies: [
+                "Torch",
+                .product(name: "RealModuleDifferentiable", package: "swift-numerics-differentiable"),
+            ],
             path: "Tests/TorchTests",
             swiftSettings: commonSwiftSettings,
             linkerSettings: allLinkerSettings
