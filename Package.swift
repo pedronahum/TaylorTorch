@@ -95,8 +95,9 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            // C++ libraries - using libstdc++ (what PyTorch actually uses in Docker)
-            "-Xlinker", "-lstdc++",
+            // C++ libraries - using libc++ to match Docker PyTorch build
+            "-Xlinker", "-lc++",
+            "-Xlinker", "-lc++abi",
             "-Xlinker", "-lm",
             // PyTorch libraries in --whole-archive block
             "-Xlinker", "--whole-archive",
@@ -121,7 +122,8 @@ if let cStandardLibraryModuleMap {
 // Platform-specific linker settings for ATenCXXDoctests
 #if os(Linux)
     let platformLinkerSettings: [LinkerSetting] = [
-        .linkedLibrary("stdc++"),
+        .linkedLibrary("c++"),
+        .linkedLibrary("c++abi"),
         .linkedLibrary("m"),
     ]
 
@@ -130,7 +132,8 @@ if let cStandardLibraryModuleMap {
         .unsafeFlags([
             "-L", pytorchLibDir,
             "-Xlinker", "-rpath", "-Xlinker", pytorchLibDir,
-            "-Xlinker", "-lstdc++",
+            "-Xlinker", "-lc++",
+            "-Xlinker", "-lc++abi",
             "-Xlinker", "-lm",
             // PyTorch libraries in --whole-archive block
             "-Xlinker", "--whole-archive",
@@ -180,10 +183,8 @@ if let cStandardLibraryModuleMap {
 // Platform-specific CXX settings for Linux
 #if os(Linux)
     let platformCxxSettings: [CXXSetting] = [
-        // Use libstdc++ (what PyTorch actually uses in Docker)
-        .unsafeFlags(["-stdlib=libstdc++"]),
-        // Use old ABI (ABI=0) to match Docker PyTorch build
-        .define("_GLIBCXX_USE_CXX11_ABI", to: "0")
+        // Use libc++ to match Docker PyTorch build
+        .unsafeFlags(["-stdlib=libc++"])
     ]
 #else
     let platformCxxSettings: [CXXSetting] = []

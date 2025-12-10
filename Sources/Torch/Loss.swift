@@ -741,8 +741,8 @@ public func softmaxCrossEntropy(
   // 1. Get the number of classes from the last dimension of the logits.
   let numClasses = logits.shape.last!
 
-  // 2. Compute the log-probabilities in a numerically stable way.
-  let logProbs = logSoftmax(logits, dim: -1)
+  // 2. Compute the log-probabilities using native log_softmax.
+  let logProbs = logits.logSoftmax(dim: -1)
 
   // 3. Convert the integer labels to a one-hot representation.
   let labelsOneHot = withoutDerivative(

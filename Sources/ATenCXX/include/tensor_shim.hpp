@@ -6,7 +6,10 @@
 #include <utility>
 #include <ATen/ops/where.h>
 #include <ATen/ops/group_norm.h>
+#include <ATen/ops/native_batch_norm.h>
+#include <ATen/ops/native_batch_norm_backward.h>
 #include <ATen/ops/allclose.h>
+#include <ATen/ops/matmul_backward.h>
 #include <cstdint>
 
 #include <swift/bridging>
@@ -191,8 +194,177 @@ static inline TTSTensor _native_group_norm_backward_get0(const std::tuple<TTSTen
 static inline TTSTensor _native_group_norm_backward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
 static inline TTSTensor _native_group_norm_backward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
 
-// --- Tiny getters so Swift doesn’t need std::get ----------
-// --- tuple getters (so Swift doesn’t need std.get)
+// ---- Native Batch Normalization ----
+
+// native_batch_norm forward: returns (output, save_mean, save_invstd)
+// Note: running_mean/running_var are updated in-place during training
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _native_batch_norm(
+  const TTSTensor& input,
+  const TTSTensor* weight,
+  const TTSTensor* bias,
+  TTSTensor* running_mean,
+  TTSTensor* running_var,
+  bool training,
+  double momentum,
+  double epsilon)
+{
+  c10::optional<at::Tensor> weightOpt = weight ? c10::optional<at::Tensor>(weight->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> biasOpt = bias ? c10::optional<at::Tensor>(bias->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> runningMeanOpt = running_mean ? c10::optional<at::Tensor>(running_mean->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> runningVarOpt = running_var ? c10::optional<at::Tensor>(running_var->_t()) : c10::nullopt;
+
+  auto result = at::native_batch_norm(
+    input._t(),
+    weightOpt,
+    biasOpt,
+    runningMeanOpt,
+    runningVarOpt,
+    training,
+    momentum,
+    epsilon);
+
+  return {
+    TTSTensor(std::get<0>(result)),
+    TTSTensor(std::get<1>(result)),
+    TTSTensor(std::get<2>(result))
+  };
+}
+
+// native_batch_norm backward: returns (grad_input, grad_weight, grad_bias)
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _native_batch_norm_backward(
+  const TTSTensor& grad_out,
+  const TTSTensor& input,
+  const TTSTensor* weight,
+  const TTSTensor* running_mean,
+  const TTSTensor* running_var,
+  const TTSTensor* save_mean,
+  const TTSTensor* save_invstd,
+  bool training,
+  double epsilon)
+{
+  c10::optional<at::Tensor> weightOpt = weight ? c10::optional<at::Tensor>(weight->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> runningMeanOpt = running_mean ? c10::optional<at::Tensor>(running_mean->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> runningVarOpt = running_var ? c10::optional<at::Tensor>(running_var->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> saveMeanOpt = save_mean ? c10::optional<at::Tensor>(save_mean->_t()) : c10::nullopt;
+  c10::optional<at::Tensor> saveInvstdOpt = save_invstd ? c10::optional<at::Tensor>(save_invstd->_t()) : c10::nullopt;
+
+  std::array<bool, 3> output_mask{{true, true, true}};
+
+  auto result = at::native_batch_norm_backward(
+    grad_out._t(),
+    input._t(),
+    weightOpt,
+    runningMeanOpt,
+    runningVarOpt,
+    saveMeanOpt,
+    saveInvstdOpt,
+    training,
+    epsilon,
+    output_mask);
+
+  return {
+    TTSTensor(std::get<0>(result)),
+    TTSTensor(std::get<1>(result)),
+    TTSTensor(std::get<2>(result))
+  };
+}
+
+// Tuple getters for batch_norm
+static inline TTSTensor _native_batch_norm_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _native_batch_norm_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
+static inline TTSTensor _native_batch_norm_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
+
+// ===== Native Linear =====
+// at::linear(input, weight, bias) -> output
+// Note: weight should be [out_features, in_features] (transposed from TaylorTorch convention)
+static inline TTSTensor _linear(
+  const TTSTensor& input,
+  const TTSTensor& weight,
+  const TTSTensor* bias)
+{
+  c10::optional<at::Tensor> biasOpt = bias ? c10::optional<at::Tensor>(bias->_t()) : c10::nullopt;
+  return TTSTensor(at::linear(input._t(), weight._t(), biasOpt));
+}
+
+// at::linear_backward(input, grad_output, weight, output_mask) -> (grad_input, grad_weight, grad_bias)
+static inline std::tuple<TTSTensor, TTSTensor, TTSTensor> _linear_backward(
+  const TTSTensor& input,
+  const TTSTensor& grad_output,
+  const TTSTensor& weight)
+{
+  std::array<bool, 3> output_mask{{true, true, true}};
+  auto result = at::linear_backward(input._t(), grad_output._t(), weight._t(), output_mask);
+  return {
+    TTSTensor(std::get<0>(result)),
+    TTSTensor(std::get<1>(result)),
+    TTSTensor(std::get<2>(result))
+  };
+}
+
+// Tuple getters for linear_backward
+static inline TTSTensor _linear_backward_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _linear_backward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
+static inline TTSTensor _linear_backward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }
+
+// ===== Native Softmax =====
+// at::_softmax(self, dim, half_to_float) -> output
+static inline TTSTensor _softmax(const TTSTensor& self, int64_t dim) {
+  return TTSTensor(at::_softmax(self._t(), dim, false));
+}
+
+// at::_softmax_backward_data(grad_output, output, dim, input_dtype) -> grad_input
+static inline TTSTensor _softmax_backward(
+  const TTSTensor& grad_output,
+  const TTSTensor& output,
+  int64_t dim)
+{
+  return TTSTensor(at::_softmax_backward_data(
+    grad_output._t(), output._t(), dim, output._t().scalar_type()));
+}
+
+// ===== Native Log Softmax =====
+// at::_log_softmax(self, dim, half_to_float) -> output
+static inline TTSTensor _log_softmax(const TTSTensor& self, int64_t dim) {
+  return TTSTensor(at::_log_softmax(self._t(), dim, false));
+}
+
+// at::_log_softmax_backward_data(grad_output, output, dim, input_dtype) -> grad_input
+static inline TTSTensor _log_softmax_backward(
+  const TTSTensor& grad_output,
+  const TTSTensor& output,
+  int64_t dim)
+{
+  return TTSTensor(at::_log_softmax_backward_data(
+    grad_output._t(), output._t(), dim, output._t().scalar_type()));
+}
+
+// ===== Native ReLU Backward =====
+// Uses threshold_backward with threshold=0 (equivalent to relu_backward)
+static inline TTSTensor _relu_backward(
+  const TTSTensor& grad_output,
+  const TTSTensor& self)
+{
+  return TTSTensor(at::threshold_backward(grad_output._t(), self._t(), 0.0));
+}
+
+// ===== Native Matmul Backward =====
+// Returns (grad_self, grad_other) for matmul backward
+static inline std::tuple<TTSTensor, TTSTensor> _matmul_backward(
+  const TTSTensor& grad,
+  const TTSTensor& self,
+  const TTSTensor& other)
+{
+  std::array<bool, 2> mask{{true, true}};
+  auto result = at::matmul_backward(grad._t(), self._t(), other._t(), mask);
+  return {TTSTensor(std::get<0>(result)), TTSTensor(std::get<1>(result))};
+}
+
+// tuple getters for matmul_backward
+static inline TTSTensor _matmul_backward_get0(const std::tuple<TTSTensor, TTSTensor>& t) { return std::get<0>(t); }
+static inline TTSTensor _matmul_backward_get1(const std::tuple<TTSTensor, TTSTensor>& t) { return std::get<1>(t); }
+
+// --- Tiny getters so Swift doesn't need std::get ----------
+// --- tuple getters (so Swift doesn't need std.get)
 static inline TTSTensor _conv2d_backward_get0(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<0>(t); }
 static inline TTSTensor _conv2d_backward_get1(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<1>(t); }
 static inline TTSTensor _conv2d_backward_get2(const std::tuple<TTSTensor,TTSTensor,TTSTensor>& t) { return std::get<2>(t); }

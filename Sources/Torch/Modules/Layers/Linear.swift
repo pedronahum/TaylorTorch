@@ -312,11 +312,12 @@ public struct Linear: Layer {
   ///         for backpropagation.
   @differentiable(reverse)
   public func callAsFunction(_ x: Tensor) -> Tensor {
-    x.matmul(weight).adding(bias)
+    // Use native linear with transposed weight (PyTorch convention: [out, in])
+    x.nativeLinear(weight: weight.transposed(0, 1), bias: bias)
   }
 }
 
-// MARK: - Manual derivatives (avoid curried-self path)
+// MARK: - Manual derivatives using native linear forward, optimized backward
 extension Linear {
   @derivative(of: callAsFunction, wrt: (self, x))
   public func _vjpCallAsFunction(_ x: Tensor)
@@ -325,11 +326,33 @@ extension Linear {
       pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector)
     )
   {
-    func primal(_ s: Linear, _ i: Tensor) -> Tensor {
-      i.matmul(s.weight).adding(s.bias)
-    }
-    let (y, pb) = valueWithPullback(at: self, x, of: primal)
-    return (y, pb)
+    // Forward pass using native linear (fused addmm)
+    // Weight is transposed: TaylorTorch [in, out] -> PyTorch [out, in]
+    let weightT = weight.transposed(0, 1)
+    let output = x.nativeLinear(weight: weightT, bias: bias)
+
+    return (
+      output,
+      { [weight] upstream in
+        // Manual backward using matmul operations:
+        // For y = x @ W + b (where our W is [in, out]):
+        // - grad_input = upstream @ W^T
+        // - grad_weight = x^T @ upstream
+        // - grad_bias = sum(upstream, dim=0)
+
+        // grad_input: upstream [batch, out] @ W^T [out, in] = [batch, in]
+        // W is [in, out], so W^T is [out, in]
+        let gradInput = upstream.matmul(weight.transposed(0, 1))
+
+        // grad_weight: x^T @ upstream gives [in, batch] @ [batch, out] = [in, out]
+        let gradWeight = x.transposed(-1, -2).matmul(upstream)
+
+        // grad_bias: sum over batch dimension
+        let gradBias = upstream.sum(dim: 0, keepdim: false)
+
+        return (TangentVector(weight: gradWeight, bias: gradBias), gradInput)
+      }
+    )
   }
 
   @derivative(of: callAsFunction, wrt: (self))

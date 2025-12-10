@@ -1,3 +1,4 @@
+@preconcurrency import ATenCXX
 import _Differentiation
 
 /// Materialises an all-zero tensor matching the provided tensor's shape,
@@ -95,17 +96,15 @@ extension Tensor {
     )
   }
 
-  /// Reverse-mode derivative for `relu`, masking out negative inputs while
-  /// forwarding positive gradients unchanged.
+  /// Reverse-mode derivative for `relu` using native threshold_backward kernel.
   @derivative(of: relu)
   @inlinable
   internal func _vjpRelu() -> (value: Tensor, pullback: (Tensor) -> Tensor) {
     let result = self.relu()
     return (
       result,
-      { v in
-        let mask = self .> 0
-        return v.multiplying(mask.to(dtype: v.dtype!))
+      { [self] v in
+        Tensor(ATenCXX.TTSTensor._relu_backward(v._impl, self._impl))
       }
     )
   }

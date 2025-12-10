@@ -130,14 +130,57 @@ extension Tensor {
 }
 
 public extension Tensor {
-  /// Numerically stable softmax along the specified dimension.
+  /// Numerically stable softmax along the specified dimension using native ATen kernel.
   @differentiable(reverse, wrt: self)
   func softmax(dim: Int) -> Tensor {
-    let axis = withoutDerivative(at: dim)
-    let maxValues = self.max(dim: axis, keepdim: true).values
-    let shifted = self - maxValues
-    let expValues = shifted.exp()
-    let sumExp = expValues.sum(dim: axis, keepdim: true)
-    return expValues / sumExp
+    Tensor(ATenCXX.TTSTensor._softmax(self._impl, Int64(dim)))
+  }
+}
+
+// Custom VJP for softmax using native backward
+extension Tensor {
+  @derivative(of: softmax, wrt: self)
+  @usableFromInline
+  internal func _vjpSoftmax(dim: Int) -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let output = Tensor(ATenCXX.TTSTensor._softmax(self._impl, Int64(dim)))
+    return (
+      output,
+      { upstream in
+        Tensor(ATenCXX.TTSTensor._softmax_backward(
+          upstream._impl,
+          output._impl,
+          Int64(dim)
+        ))
+      }
+    )
+  }
+}
+
+// MARK: - Native Log Softmax
+
+public extension Tensor {
+  /// Numerically stable log softmax along the specified dimension using native ATen kernel.
+  @differentiable(reverse, wrt: self)
+  func logSoftmax(dim: Int) -> Tensor {
+    Tensor(ATenCXX.TTSTensor._log_softmax(self._impl, Int64(dim)))
+  }
+}
+
+// Custom VJP for logSoftmax using native backward
+extension Tensor {
+  @derivative(of: logSoftmax, wrt: self)
+  @usableFromInline
+  internal func _vjpLogSoftmax(dim: Int) -> (value: Tensor, pullback: (Tensor) -> Tensor) {
+    let output = Tensor(ATenCXX.TTSTensor._log_softmax(self._impl, Int64(dim)))
+    return (
+      output,
+      { upstream in
+        Tensor(ATenCXX.TTSTensor._log_softmax_backward(
+          upstream._impl,
+          output._impl,
+          Int64(dim)
+        ))
+      }
+    )
   }
 }

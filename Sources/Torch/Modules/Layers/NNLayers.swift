@@ -485,22 +485,40 @@ public struct Conv2D: Layer {
   }
 }
 
-// Avoid “curried self” path using a free closure in the VJP.
+// Direct VJP using native conv2d_backward for better performance.
 extension Conv2D {
   @derivative(of: callAsFunction, wrt: (self, x))
   public func _vjpCallAsFunction(_ x: Tensor)
     -> (value: Tensor, pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector))
   {
-    func primal(_ s: Conv2D, _ i: Tensor) -> Tensor {
-      let str = withoutDerivative(at: [Int64(s.stride.0), Int64(s.stride.1)])
-      let pad = withoutDerivative(at: [Int64(s.padding.0), Int64(s.padding.1)])
-      let dil = withoutDerivative(at: [Int64(s.dilation.0), Int64(s.dilation.1)])
-      let grp = withoutDerivative(at: Int64(s.groups))
-      return i.conv2d(
-        weight: s.weight, bias: s.bias, stride: str, padding: pad, dilation: dil, groups: grp)
-    }
-    let (y, pb) = valueWithPullback(at: self, x, of: primal)
-    return (y, pb)
+    // Forward pass
+    let s = [Int64(stride.0), Int64(stride.1)]
+    let p = [Int64(padding.0), Int64(padding.1)]
+    let d = [Int64(dilation.0), Int64(dilation.1)]
+    let g = Int64(groups)
+    let output = x.conv2d(weight: weight, bias: bias, stride: s, padding: p, dilation: d, groups: g)
+
+    return (
+      output,
+      { [weight, stride, padding, dilation, groups] upstream in
+        // Native backward using _conv2dBackward
+        let s = [Int64(stride.0), Int64(stride.1)]
+        let p = [Int64(padding.0), Int64(padding.1)]
+        let d = [Int64(dilation.0), Int64(dilation.1)]
+        let g = Int64(groups)
+
+        let (gradInput, gradWeight, gradBias) = x._conv2dBackward(
+          upstream: upstream,
+          weight: weight,
+          stride: s,
+          padding: p,
+          dilation: d,
+          groups: g
+        )
+
+        return (TangentVector(weight: gradWeight, bias: gradBias), gradInput)
+      }
+    )
   }
 
   @derivative(of: callAsFunction, wrt: (self))
