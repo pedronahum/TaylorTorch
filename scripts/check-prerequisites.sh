@@ -3,6 +3,7 @@
 # TaylorTorch Prerequisites Checker
 #
 # This script checks if all prerequisites for building TaylorTorch are installed.
+# Supports both pip-installed PyTorch (recommended) and source-built PyTorch.
 ################################################################################
 
 set -euo pipefail
@@ -26,11 +27,19 @@ echo ""
 
 MISSING=0
 
-# Check Ubuntu version
-if grep -q "Ubuntu 24.04" /etc/os-release 2>/dev/null; then
+# Detect OS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS="macOS"
+    log_success "macOS detected"
+elif grep -q "Ubuntu 24.04" /etc/os-release 2>/dev/null; then
+    OS="Linux"
     log_success "Ubuntu 24.04 detected"
+elif [ -f /etc/os-release ]; then
+    OS="Linux"
+    log_warning "Non-Ubuntu Linux detected - some packages may differ"
 else
-    log_warning "Not running Ubuntu 24.04 - some packages may differ"
+    OS="Unknown"
+    log_warning "Unknown OS - some checks may not apply"
 fi
 
 # Check Swift
@@ -49,12 +58,33 @@ else
     log_warning "Swiftly not found (optional but recommended)"
 fi
 
-# Check PyTorch
-PYTORCH_DIR="${PYTORCH_INSTALL_DIR:-/opt/pytorch}"
-if [ -f "${PYTORCH_DIR}/lib/libtorch.so" ]; then
-    log_success "PyTorch library found at ${PYTORCH_DIR}"
-else
-    log_error "PyTorch not found at ${PYTORCH_DIR}/lib/libtorch.so"
+# Check PyTorch - first try pip installation, then fall back to custom path
+PYTORCH_FOUND=false
+
+# Try to detect pip-installed PyTorch
+if command -v python3 &> /dev/null; then
+    PIP_PYTORCH_DIR=$(python3 -c "import torch; print(torch.__path__[0])" 2>/dev/null || true)
+    if [ -n "$PIP_PYTORCH_DIR" ] && [ -f "${PIP_PYTORCH_DIR}/lib/libtorch.so" -o -f "${PIP_PYTORCH_DIR}/lib/libtorch.dylib" ]; then
+        log_success "PyTorch found via pip at ${PIP_PYTORCH_DIR}"
+        PYTORCH_FOUND=true
+
+        # Check for optimizations
+        python3 -c "import torch; config = torch.__config__.show(); mkl='USE_MKL=ON' in config; mkldnn='USE_MKLDNN=ON' in config; print('  MKL:', 'enabled' if mkl else 'disabled'); print('  MKLDNN:', 'enabled' if mkldnn else 'disabled')" 2>/dev/null || true
+    fi
+fi
+
+# Fall back to PYTORCH_INSTALL_DIR or default paths
+if [ "$PYTORCH_FOUND" = false ]; then
+    PYTORCH_DIR="${PYTORCH_INSTALL_DIR:-/opt/pytorch}"
+    if [ -f "${PYTORCH_DIR}/lib/libtorch.so" ] || [ -f "${PYTORCH_DIR}/lib/libtorch.dylib" ]; then
+        log_success "PyTorch library found at ${PYTORCH_DIR}"
+        PYTORCH_FOUND=true
+    fi
+fi
+
+if [ "$PYTORCH_FOUND" = false ]; then
+    log_error "PyTorch not found"
+    log_info "Install via pip: pip3 install torch==2.8.0"
     MISSING=$((MISSING + 1))
 fi
 
@@ -77,48 +107,83 @@ else
     MISSING=$((MISSING + 1))
 fi
 
-# Check libstdc++ headers
-if [ -d "/usr/include/c++/13" ]; then
-    log_success "libstdc++ 13 headers found"
-elif [ -d "/usr/include/c++/12" ]; then
-    log_warning "libstdc++ 12 headers found (13 recommended)"
-else
-    log_error "libstdc++ headers not found"
-    MISSING=$((MISSING + 1))
-fi
-
-# Check OpenMP
-OMP_FOUND=0
-for omp in "/usr/lib/llvm-18/lib/libomp.so" "/usr/lib/llvm-17/lib/libomp.so" "/usr/lib/x86_64-linux-gnu/libomp.so"; do
-    if [ -f "$omp" ]; then
-        log_success "OpenMP library found at $omp"
-        OMP_FOUND=1
-        break
+# Linux-specific checks
+if [ "$OS" = "Linux" ]; then
+    # Check libstdc++ headers
+    if [ -d "/usr/include/c++/13" ]; then
+        log_success "libstdc++ 13 headers found"
+    elif [ -d "/usr/include/c++/12" ]; then
+        log_warning "libstdc++ 12 headers found (13 recommended)"
+    else
+        log_error "libstdc++ headers not found"
+        MISSING=$((MISSING + 1))
     fi
-done
-if [ $OMP_FOUND -eq 0 ]; then
-    log_error "OpenMP library not found"
-    MISSING=$((MISSING + 1))
+
+    # Check OpenMP
+    OMP_FOUND=0
+    for omp in "/usr/lib/llvm-18/lib/libomp.so" "/usr/lib/llvm-17/lib/libomp.so" "/usr/lib/x86_64-linux-gnu/libomp.so"; do
+        if [ -f "$omp" ]; then
+            log_success "OpenMP library found at $omp"
+            OMP_FOUND=1
+            break
+        fi
+    done
+    if [ $OMP_FOUND -eq 0 ]; then
+        log_error "OpenMP library not found"
+        MISSING=$((MISSING + 1))
+    fi
 fi
 
-# Check environment files
-if [ -f "/etc/profile.d/swift.sh" ]; then
-    log_success "Swift environment file exists"
-else
-    log_warning "Swift environment file not found at /etc/profile.d/swift.sh"
+# macOS-specific checks
+if [ "$OS" = "macOS" ]; then
+    # Check for libomp (via Homebrew)
+    if [ -f "/opt/homebrew/opt/libomp/lib/libomp.dylib" ] || [ -f "/usr/local/opt/libomp/lib/libomp.dylib" ]; then
+        log_success "OpenMP library found (via Homebrew)"
+    else
+        log_warning "OpenMP not found - install with: brew install libomp"
+    fi
+
+    # Check SDKROOT
+    if [ -n "${SDKROOT:-}" ]; then
+        log_success "SDKROOT set to ${SDKROOT}"
+    else
+        SDKROOT=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)
+        if [ -n "$SDKROOT" ]; then
+            log_success "SDKROOT available at ${SDKROOT}"
+        else
+            log_warning "SDKROOT not set and xcrun failed"
+        fi
+    fi
 fi
 
-if [ -f "/etc/profile.d/pytorch.sh" ]; then
-    log_success "PyTorch environment file exists"
-else
-    log_warning "PyTorch environment file not found at /etc/profile.d/pytorch.sh"
+# Check environment files (Linux only)
+if [ "$OS" = "Linux" ]; then
+    if [ -f "/etc/profile.d/swift.sh" ]; then
+        log_success "Swift environment file exists"
+    else
+        log_warning "Swift environment file not found at /etc/profile.d/swift.sh"
+    fi
+
+    if [ -f "/etc/profile.d/pytorch.sh" ]; then
+        log_success "PyTorch environment file exists"
+    else
+        log_warning "PyTorch environment file not found at /etc/profile.d/pytorch.sh"
+    fi
 fi
 
-# Check LD_LIBRARY_PATH
-if [[ "${LD_LIBRARY_PATH:-}" == *"pytorch"* ]]; then
-    log_success "PyTorch in LD_LIBRARY_PATH"
-else
-    log_warning "PyTorch not in LD_LIBRARY_PATH (may need to source /etc/profile.d/pytorch.sh)"
+# Check LD_LIBRARY_PATH / DYLD_LIBRARY_PATH
+if [ "$OS" = "Linux" ]; then
+    if [[ "${LD_LIBRARY_PATH:-}" == *"torch"* ]] || [[ "${LD_LIBRARY_PATH:-}" == *"pytorch"* ]]; then
+        log_success "PyTorch in LD_LIBRARY_PATH"
+    else
+        log_warning "PyTorch not in LD_LIBRARY_PATH (may need to source /etc/profile.d/pytorch.sh)"
+    fi
+elif [ "$OS" = "macOS" ]; then
+    if [[ "${DYLD_LIBRARY_PATH:-}" == *"torch"* ]] || [[ "${DYLD_LIBRARY_PATH:-}" == *"pytorch"* ]]; then
+        log_success "PyTorch in DYLD_LIBRARY_PATH"
+    else
+        log_warning "PyTorch may not be in DYLD_LIBRARY_PATH"
+    fi
 fi
 
 echo ""
@@ -129,6 +194,10 @@ if [ $MISSING -eq 0 ]; then
     exit 0
 else
     echo -e "${RED}Missing $MISSING prerequisite(s)${NC}"
-    echo "Run ./scripts/install-taylortorch-ubuntu.sh to install missing dependencies"
+    if [ "$OS" = "Linux" ]; then
+        echo "Run ./scripts/install-taylortorch-ubuntu.sh to install missing dependencies"
+    else
+        echo "Install missing dependencies and try again"
+    fi
     exit 1
 fi

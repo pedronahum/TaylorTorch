@@ -2,28 +2,27 @@
 ################################################################################
 # TaylorTorch Installation Script for Ubuntu 24.04
 #
-# This script installs Swift (latest dev snapshot) and PyTorch from source,
-# ensuring that PyTorch is compiled with the same clang compiler from Swift.
+# This script installs Swift (latest dev snapshot) and PyTorch via pip.
+# Using pip-installed PyTorch provides optimized binaries with MKL/MKLDNN
+# support, resulting in ~10x faster training compared to source builds.
 #
 # Usage:
 #   ./install-taylortorch-ubuntu.sh [OPTIONS]
 #
 # Options:
 #   --swift-version VERSION    Specify Swift version (default: main-snapshot-2025-11-03)
-#   --pytorch-version VERSION  Specify PyTorch version (default: v2.8.0)
-#   --pytorch-dir DIR         PyTorch installation directory (default: /opt/pytorch)
-#   --max-jobs N              Max parallel jobs for building (default: auto-detect)
+#   --pytorch-version VERSION  Specify PyTorch version (default: 2.8.0)
+#   --pytorch-dir DIR         PyTorch installation directory (default: auto-detect from pip)
 #   --help                    Show this help message
 #
 # Environment Variables:
 #   SWIFT_VERSION             Override Swift version
 #   PYTORCH_VERSION           Override PyTorch version
 #   PYTORCH_INSTALL_DIR       Override PyTorch installation directory
-#   MAX_JOBS                  Override max parallel jobs
 #
 # Example:
-#   # Use latest Swift and PyTorch with 4 jobs
-#   ./install-taylortorch-ubuntu.sh --max-jobs 4
+#   # Use latest Swift and PyTorch
+#   ./install-taylortorch-ubuntu.sh
 #
 #   # Use specific Swift snapshot
 #   ./install-taylortorch-ubuntu.sh --swift-version swift-DEVELOPMENT-SNAPSHOT-2025-10-20-a
@@ -65,9 +64,8 @@ log_section() {
 
 # Default configuration
 SWIFT_VERSION="${SWIFT_VERSION:-main-snapshot-2025-11-03}"
-PYTORCH_VERSION="${PYTORCH_VERSION:-v2.8.0}"
-PYTORCH_INSTALL_DIR="${PYTORCH_INSTALL_DIR:-/opt/pytorch}"
-MAX_JOBS="${MAX_JOBS:-$(nproc)}"
+PYTORCH_VERSION="${PYTORCH_VERSION:-2.8.0}"
+PYTORCH_INSTALL_DIR="${PYTORCH_INSTALL_DIR:-}"  # Will be auto-detected from pip
 SKIP_DEPS=false
 SKIP_SWIFT=false
 SKIP_PYTORCH=false
@@ -90,10 +88,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --pytorch-dir)
             PYTORCH_INSTALL_DIR="$2"
-            shift 2
-            ;;
-        --max-jobs)
-            MAX_JOBS="$2"
             shift 2
             ;;
         --skip-deps)
@@ -122,8 +116,6 @@ done
 log_section "Configuration"
 log_info "Swift Version: $SWIFT_VERSION"
 log_info "PyTorch Version: $PYTORCH_VERSION"
-log_info "PyTorch Install Dir: $PYTORCH_INSTALL_DIR"
-log_info "Max Jobs: $MAX_JOBS"
 log_info "Skip Dependencies: $SKIP_DEPS"
 log_info "Skip Swift: $SKIP_SWIFT"
 log_info "Skip PyTorch: $SKIP_PYTORCH"
@@ -220,7 +212,7 @@ if [[ "$SKIP_DEPS" == false ]]; then
         log_warning "This may cause header search path issues during PyTorch build"
     fi
 
-    log_info "Installing Python packages for PyTorch..."
+    log_info "Installing Python packages..."
     pip3 install --break-system-packages \
         numpy \
         pyyaml \
@@ -413,392 +405,62 @@ fi
 OMP_INCLUDE_DIR="$(realpath "${OMP_INCLUDE_DIR}")"
 OMP_LIBRARY="$(realpath "${OMP_LIBRARY}")"
 
-log_info "Creating PyTorch environment file..."
-if sudo -n true 2>/dev/null; then
-    # We have passwordless sudo or are root
-    sudo tee /etc/profile.d/pytorch.sh > /dev/null <<EOF
-export OMP_INCLUDE_DIR="${OMP_INCLUDE_DIR}"
-export OMP_LIBRARY="${OMP_LIBRARY}"
-export PYTORCH_INSTALL_DIR="${PYTORCH_INSTALL_DIR}"
-export SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_DIR}"
-export CC=clang
-export CXX=clang++
-export LD_LIBRARY_PATH="${PYTORCH_INSTALL_DIR}/lib:\${LD_LIBRARY_PATH:-}"
-EOF
-else
-    # No sudo available - check if file exists and is reasonable
-    if [ -f /etc/profile.d/pytorch.sh ]; then
-        log_info "PyTorch environment file already exists and no sudo available - skipping update"
-    else
-        log_error "Cannot create /etc/profile.d/pytorch.sh without sudo permissions"
-        exit 1
-    fi
-fi
-
-# Source it safely (LD_LIBRARY_PATH might not be set yet)
-set +u  # Temporarily allow unset variables
-source /etc/profile.d/pytorch.sh
-set -u  # Re-enable strict mode
-
 log_success "OpenMP verified and configured"
 
 ################################################################################
-# 4. Build and Install PyTorch
+# 4. Install PyTorch via pip
 ################################################################################
 
 if [[ "$SKIP_PYTORCH" == false ]]; then
-    log_section "Building PyTorch $PYTORCH_VERSION"
+    log_section "Installing PyTorch $PYTORCH_VERSION via pip"
 
-    # Check if PyTorch is already installed
-    if [ -f "${PYTORCH_INSTALL_DIR}/lib/libtorch.so" ]; then
-        log_warning "PyTorch already installed at ${PYTORCH_INSTALL_DIR}"
-        read -p "Do you want to rebuild PyTorch? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "Skipping PyTorch build"
-            SKIP_PYTORCH=true
-        fi
+    # Install PyTorch via pip (includes optimized MKL/MKLDNN binaries)
+    log_info "Installing PyTorch ${PYTORCH_VERSION} via pip..."
+    log_info "This provides pre-built optimized binaries with MKL and MKLDNN support."
+    log_info "Performance is ~10x faster than building from source without these optimizations."
+
+    pip3 install --break-system-packages "torch==${PYTORCH_VERSION}"
+
+    # Detect PyTorch installation path
+    log_info "Detecting PyTorch installation path..."
+    PYTORCH_INSTALL_DIR=$(python3 -c "import torch; print(torch.__path__[0])" 2>/dev/null || true)
+
+    if [ -z "${PYTORCH_INSTALL_DIR}" ]; then
+        log_error "Failed to detect PyTorch installation path"
+        log_error "Please ensure PyTorch was installed correctly"
+        exit 1
     fi
 
-    if [[ "$SKIP_PYTORCH" == false ]]; then
-        # Clean up before build
-        log_info "Checking available disk space..."
-        df -h
+    log_success "PyTorch installed at: ${PYTORCH_INSTALL_DIR}"
 
-        # Clone PyTorch
-        log_info "Cloning PyTorch repository (version: $PYTORCH_VERSION)..."
-        if [ -d "/tmp/pytorch" ]; then
-            log_warning "Removing existing /tmp/pytorch directory"
-            rm -rf /tmp/pytorch
-        fi
-
-        git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-            https://github.com/pytorch/pytorch.git /tmp/pytorch || \
-            (log_warning "First clone attempt failed, retrying..." && sleep 10 && \
-            git clone --depth=1 --shallow-submodules --branch ${PYTORCH_VERSION} \
-            https://github.com/pytorch/pytorch.git /tmp/pytorch)
-
-        # Update submodules
-        log_info "Updating PyTorch submodules..."
-        cd /tmp/pytorch
-        git submodule sync
-        git submodule update --init --depth=1 --recursive
-
-        # Configure PyTorch build
-        log_section "Configuring PyTorch Build"
-
-        source /etc/profile.d/pytorch.sh
-        
-        # Isolate OpenMP header to avoid pulling in conflicting GCC headers (limits.h, lwpintrin.h)
-        # This is critical because Clang's resource directory must take precedence, but we need omp.h
-        if [[ "$OMP_INCLUDE_DIR" == *"/usr/lib/gcc"* ]]; then
-            log_info "Isolating OpenMP header from GCC include directory..."
-            ISOLATED_OMP_DIR="/tmp/taylortorch_omp"
-            mkdir -p "$ISOLATED_OMP_DIR"
-            cp "$OMP_INCLUDE_DIR/omp.h" "$ISOLATED_OMP_DIR/"
-            OMP_INCLUDE_DIR="$ISOLATED_OMP_DIR"
-            log_info "New OpenMP include dir: $OMP_INCLUDE_DIR"
-        fi
-
-        log_info "Using OpenMP include: $OMP_INCLUDE_DIR"
-        log_info "Using OpenMP library: $OMP_LIBRARY"
-
-        cd /tmp/pytorch
-        mkdir -p build
-        cd build
-
-        # Detect Swift toolchain
-        # CRITICAL: When using swiftly, the swift binary is a wrapper script
-        # We must parse swiftly's config.json to find the actual active toolchain
-        SWIFT_BIN="$(which swift 2>/dev/null || true)"
-        if [ -z "${SWIFT_BIN}" ]; then
-            log_error "Swift not found in PATH! Please ensure Swift is installed via Swiftly."
-            log_error "Run: source /etc/profile.d/swift.sh"
-            exit 1
-        fi
-
-        # Check if we're using swiftly by looking for its directory structure
-        SWIFTLY_BASE="$(dirname $(dirname ${SWIFT_BIN}))"
-        if [ -f "${SWIFTLY_BASE}/config.json" ]; then
-            # Using swiftly - parse config.json to get active toolchain
-            log_info "Detected swiftly installation at ${SWIFTLY_BASE}"
-
-            # Extract the "inUse" field from config.json
-            ACTIVE_TOOLCHAIN=$(cat "${SWIFTLY_BASE}/config.json" | sed -n 's/.*"inUse"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-
-            if [ -z "${ACTIVE_TOOLCHAIN}" ]; then
-                log_error "Could not parse active toolchain from swiftly config.json"
-                exit 1
-            fi
-
-            SWIFT_TOOLCHAIN_DIR="${SWIFTLY_BASE}/toolchains/${ACTIVE_TOOLCHAIN}/usr"
-
-            if [ ! -d "${SWIFT_TOOLCHAIN_DIR}" ]; then
-                log_error "Active toolchain directory not found: ${SWIFT_TOOLCHAIN_DIR}"
-                log_error "Swiftly config says toolchain is: ${ACTIVE_TOOLCHAIN}"
-                log_error "You may need to run: swiftly use ${SWIFT_VERSION}"
-                exit 1
-            fi
-
-            log_info "Detected active Swift toolchain: ${ACTIVE_TOOLCHAIN}"
-            log_info "Swift toolchain directory: ${SWIFT_TOOLCHAIN_DIR}"
-
-            # Verify this matches the desired Swift version
-            SWIFT_ACTUAL_VERSION="$(${SWIFT_TOOLCHAIN_DIR}/bin/swift --version | head -1)"
-            log_info "Swift version: ${SWIFT_ACTUAL_VERSION}"
-
-            if [[ ! "${ACTIVE_TOOLCHAIN}" =~ ${SWIFT_VERSION} ]]; then
-                log_error "Active Swift toolchain (${ACTIVE_TOOLCHAIN}) does not match requested version (${SWIFT_VERSION})"
-                log_error "Run: swiftly use ${SWIFT_VERSION}"
-                exit 1
-            fi
-        else
-            # Not using swiftly - use traditional detection
-            SWIFT_TOOLCHAIN_DIR="$(dirname $(dirname ${SWIFT_BIN}))"
-            log_info "Detected Swift toolchain dir from PATH: ${SWIFT_TOOLCHAIN_DIR}"
-        fi
-
-        # Detect compilers and libc++ from Swift's clang
-        CLANG_RESOURCE_DIR="$(${SWIFT_TOOLCHAIN_DIR}/bin/clang++ -print-resource-dir)"
-        LLVM_BASE_DIR="$(realpath "${CLANG_RESOURCE_DIR}/../../..")"
-        log_info "Swift's clang resource dir: ${CLANG_RESOURCE_DIR}"
-        log_info "LLVM base dir: ${LLVM_BASE_DIR}"
-
-        # Find libc++ (C++ standard library)
-        # Try Swift's bundled libc++ first, then fall back to system LLVM (17 or 18)
-        LIBCXX_INCLUDE_DIR=""
-        LIBCXX_SOURCE="unknown"
-
-        if [ -n "${SWIFT_TOOLCHAIN_DIR:-}" ]; then
-            for candidate in \
-                "${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include/c++/v1" \
-                "${SWIFT_TOOLCHAIN_DIR}/include/c++/v1" \
-                "${SWIFT_TOOLCHAIN_DIR}/lib/swift_static/clang/include/c++/v1" \
-                "${CLANG_RESOURCE_DIR}/../../../include/c++/v1"; do
-                if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then
-                    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"
-                    LIBCXX_SOURCE="Swift toolchain"
-                    log_success "Found libc++ in Swift toolchain at ${LIBCXX_INCLUDE_DIR}"
-                    break
-                fi
-            done
-        fi
-
-        if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then
-            log_info "Swift toolchain doesn't include libc++, searching system LLVM"
-            # CRITICAL: Try LLVM 18 first (compatible with Swift's clang 21)
-            for candidate in \
-                "/usr/lib/llvm-18/include/c++/v1" \
-                "/usr/lib/llvm-17/include/c++/v1" \
-                "/usr/include/c++/v1"; do
-                if [ -d "${candidate}" ] && [ -f "${candidate}/cstddef" ]; then
-                    LIBCXX_INCLUDE_DIR="$(realpath "${candidate}")"
-                    # Detect version from path
-                    if [[ "${candidate}" == *"llvm-17"* ]]; then
-                        LIBCXX_SOURCE="system LLVM 17"
-                    elif [[ "${candidate}" == *"llvm-18"* ]]; then
-                        LIBCXX_SOURCE="system LLVM 18"
-                    else
-                        LIBCXX_SOURCE="system"
-                    fi
-                    log_success "Found libc++ in system at ${LIBCXX_INCLUDE_DIR}"
-                    break
-                fi
-            done
-        fi
-
-        if [ -z "${LIBCXX_INCLUDE_DIR}" ]; then
-            log_error "Unable to locate libc++ headers."
-            log_error "Please ensure libc++-17-dev or libc++-18-dev is installed."
-            exit 1
-        fi
-
-        # Find libc++ library
-        LIBCXX_LIBRARY_DIR=""
-        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ] && [ -n "${SWIFT_TOOLCHAIN_DIR:-}" ]; then
-            for candidate in \
-                "${SWIFT_TOOLCHAIN_DIR}/lib/swift/linux" \
-                "${SWIFT_TOOLCHAIN_DIR}/lib"; do
-                if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
-                    LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
-                    log_success "Found libc++ library in Swift toolchain at ${LIBCXX_LIBRARY_DIR}"
-                    break
-                fi
-            done
-        fi
-
-        if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then
-            # CRITICAL: Try LLVM 18 first (compatible with Swift's clang 21)
-            for candidate in \
-                "/usr/lib/llvm-18/lib" \
-                "/usr/lib/llvm-17/lib" \
-                "/usr/lib/x86_64-linux-gnu" \
-                "/usr/lib"; do
-                if ls "${candidate}/libc++.so"* >/dev/null 2>&1; then
-                    LIBCXX_LIBRARY_DIR="$(realpath "${candidate}")"
-                    log_success "Found libc++ library at ${LIBCXX_LIBRARY_DIR}"
-                    break
-                fi
-            done
-        fi
-
-        if [ -z "${LIBCXX_LIBRARY_DIR}" ]; then
-            log_error "Unable to locate libc++ libraries."
-            log_error "Please ensure libc++-17-dev or libc++-18-dev is installed."
-            exit 1
-        fi
-
-        log_info "libc++ include dir: ${LIBCXX_INCLUDE_DIR}"
-        log_info "libc++ library dir: ${LIBCXX_LIBRARY_DIR}"
-
-        # Set up build environment
-        export USE_LIBCXX=1
-        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ] && [ -n "${SWIFT_TOOLCHAIN_DIR:-}" ]; then
-            export CPLUS_INCLUDE_PATH="${SWIFT_TOOLCHAIN_DIR}/lib/swift:${SWIFT_TOOLCHAIN_DIR}/lib/swift/clang/include"
-        fi
-        # Note: CXXFLAGS and LDFLAGS are set later to use libstdc++ instead of libc++
-        export LDFLAGS="-L${LIBCXX_LIBRARY_DIR}"
-        if [ -n "${LIBRARY_PATH:-}" ]; then
-            export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}:${LIBRARY_PATH}"
-        else
-            export LIBRARY_PATH="${LIBCXX_LIBRARY_DIR}"
-        fi
-
-        # OpenMP flags
-        OPENMP_C_FLAGS="-fopenmp=libomp"
-        OPENMP_CXX_FLAGS="-fopenmp=libomp"
-        RESOURCE_INCLUDE="$(realpath "${CLANG_RESOURCE_DIR}/include")"
-        if [ -n "$OMP_INCLUDE_DIR" ] && [ "$OMP_INCLUDE_DIR" != "$RESOURCE_INCLUDE" ]; then
-            OPENMP_C_FLAGS="$OPENMP_C_FLAGS -isystem ${OMP_INCLUDE_DIR}"
-            OPENMP_CXX_FLAGS="$OPENMP_CXX_FLAGS -isystem ${OMP_INCLUDE_DIR}"
-        fi
-
-        # Select compiler
-        # CRITICAL: Always use Swift's clang for compiler compatibility
-        # We can use system libc++ but MUST use Swift's clang to avoid header mismatches
-        if [ -n "${SWIFT_TOOLCHAIN_DIR:-}" ] && [ -f "${SWIFT_TOOLCHAIN_DIR}/bin/clang" ]; then
-            BUILD_CC="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
-            BUILD_CXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
-            BUILD_RESOURCE_INCLUDE="${RESOURCE_INCLUDE}"
-            log_success "Using Swift's clang for PyTorch build (required for compatibility)"
-            log_info "Swift clang: ${BUILD_CXX}"
-            log_info "Using libc++ from: ${LIBCXX_SOURCE}"
-        else
-            log_error "Swift toolchain clang not found!"
-            log_error "Swift toolchain directory: ${SWIFT_TOOLCHAIN_DIR:-not set}"
-            exit 1
-        fi
-
-        # CRITICAL: Use libstdc++ instead of libc++ for PyTorch build
-        # Clang 21 (from Swift) + libc++ 18 (from Ubuntu) are incompatible versions
-        # Clang can use GCC's libstdc++ without issues, and it's more stable
-        # We need Swift's clang resource directory for compiler headers (stddef.h, stdint.h, etc.)
-        # Use -I instead of -isystem so clang's headers take priority over GCC's intrinsic headers
-        # Must pass through CMAKE_CXX_FLAGS and CMAKE_C_FLAGS since CXXFLAGS/CFLAGS are often ignored by CMake
-        export CXXFLAGS="-isystem ${RESOURCE_INCLUDE}"
-        export CFLAGS="-isystem ${RESOURCE_INCLUDE}"
-        CMAKE_CXX_FLAGS="-isystem ${RESOURCE_INCLUDE}"
-        CMAKE_C_FLAGS="-isystem ${RESOURCE_INCLUDE}"
-
-        if [ "$LIBCXX_SOURCE" = "Swift toolchain" ]; then
-            CMAKE_PREFIX_PATH="${LLVM_BASE_DIR};/usr"
-        elif [ "$LIBCXX_SOURCE" = "system LLVM 17" ]; then
-            CMAKE_PREFIX_PATH="/usr/lib/llvm-17;/usr"
-        elif [ "$LIBCXX_SOURCE" = "system LLVM 18" ]; then
-            CMAKE_PREFIX_PATH="/usr/lib/llvm-18;/usr"
-        else
-            # Generic fallback
-            CMAKE_PREFIX_PATH="/usr"
-        fi
-
-        log_section "Build Configuration Summary"
-        log_info "Compiler: ${BUILD_CC}"
-        log_info "C++ Compiler: ${BUILD_CXX}"
-        log_info "libc++ Source: ${LIBCXX_SOURCE}"
-        log_info "libc++ Include: ${LIBCXX_INCLUDE_DIR}"
-        log_info "libc++ Library: ${LIBCXX_LIBRARY_DIR}"
-        log_info "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
-        log_info "Max Jobs: ${MAX_JOBS}"
-
-        # Run CMake
-        log_info "Running CMake configuration..."
-        CC="${BUILD_CC}" CXX="${BUILD_CXX}" cmake .. \
-            -DCMAKE_C_COMPILER="${BUILD_CC}" \
-            -DCMAKE_CXX_COMPILER="${BUILD_CXX}" \
-            -DCMAKE_CXX_STANDARD=17 \
-            -DCMAKE_CXX_EXTENSIONS=OFF \
-            -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}" \
-            -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}" \
-            -DCMAKE_EXE_LINKER_FLAGS="" \
-            -DCMAKE_SHARED_LINKER_FLAGS="" \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-            -DUSE_LIBCXX=OFF \
-            -DOpenMP_C_FLAGS="${OPENMP_C_FLAGS}" \
-            -DOpenMP_CXX_FLAGS="${OPENMP_CXX_FLAGS}" \
-            -DOpenMP_C_LIB_NAMES="libomp" \
-            -DOpenMP_CXX_LIB_NAMES="libomp" \
-            -DOpenMP_libomp_LIBRARY="${OMP_LIBRARY}" \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="${PYTORCH_INSTALL_DIR}" \
-            -DBUILD_PYTHON=OFF \
-            -DBUILD_TEST=OFF \
-            -DBUILD_CAFFE2=OFF \
-            -DUSE_DISTRIBUTED=OFF \
-            -DUSE_MPS=OFF \
-            -DUSE_CUDA=OFF \
-            -DUSE_MKLDNN=OFF \
-            -DUSE_XNNPACK=OFF \
-            -DUSE_QNNPACK=OFF \
-            -DUSE_FBGEMM=OFF \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -GNinja
-
-        log_success "CMake configuration complete"
-
-        # Build PyTorch
-        log_section "Building PyTorch (this may take 30-60 minutes)"
-        log_info "Starting PyTorch build with MAX_JOBS=${MAX_JOBS}..."
-
-        # Build first (no sudo needed)
-        cmake --build . -j${MAX_JOBS} 2>&1 | tee /tmp/pytorch-build.log || \
-            (log_error "BUILD FAILED" && \
-            log_error "Last 100 lines of build log:" && \
-            tail -n 100 /tmp/pytorch-build.log && \
-            exit 1)
-
-        log_success "PyTorch build complete"
-
-        # Install to /opt/pytorch (requires sudo)
-        log_info "Installing PyTorch to ${PYTORCH_INSTALL_DIR} (requires sudo)..."
-        sudo cmake --build . --target install 2>&1 | tee -a /tmp/pytorch-build.log || \
-            (log_error "INSTALL FAILED" && \
-            log_error "Last 100 lines of build log:" && \
-            tail -n 100 /tmp/pytorch-build.log && \
-            exit 1)
-
-        log_success "PyTorch installation complete"
-
-        # Cleanup
-        log_info "Cleaning up build files..."
-        rm -rf /tmp/pytorch /tmp/pytorch-build.log
-
-        log_info "Verifying PyTorch library installation:"
-        ls -lh ${PYTORCH_INSTALL_DIR}/lib/ | head -20
+    # Verify installation
+    log_info "Verifying PyTorch installation..."
+    PYTORCH_LIB_DIR="${PYTORCH_INSTALL_DIR}/lib"
+    if [ -f "${PYTORCH_LIB_DIR}/libtorch.so" ]; then
+        log_success "Found libtorch.so"
+    else
+        log_error "libtorch.so not found at ${PYTORCH_LIB_DIR}"
+        exit 1
     fi
 
-    # Set up library paths
-    log_info "Configuring library paths..."
-    echo "${PYTORCH_INSTALL_DIR}/lib" | sudo tee /etc/ld.so.conf.d/pytorch.conf > /dev/null
-    sudo ldconfig
+    # Check for MKL/MKLDNN support
+    log_info "Checking PyTorch build configuration..."
+    python3 -c "import torch; config = torch.__config__.show(); print('MKL:', 'USE_MKL=ON' in config); print('MKLDNN:', 'USE_MKLDNN=ON' in config)"
 
-    log_success "PyTorch configured"
+    log_success "PyTorch ${PYTORCH_VERSION} installed successfully"
 else
-    log_info "Skipping PyTorch build"
+    log_info "Skipping PyTorch installation"
+    # Still need to detect existing installation
+    PYTORCH_INSTALL_DIR=$(python3 -c "import torch; print(torch.__path__[0])" 2>/dev/null || true)
+    if [ -z "${PYTORCH_INSTALL_DIR}" ]; then
+        log_warning "PyTorch not found. Please install it manually or run without --skip-pytorch"
+    fi
 fi
 
+PYTORCH_LIB_DIR="${PYTORCH_INSTALL_DIR}/lib"
+
 ################################################################################
-# 5. Verify Installation
+# 5. Verify Installation and Create Environment File
 ################################################################################
 
 log_section "Verifying Installation"
@@ -813,17 +475,37 @@ else
 fi
 
 # Verify PyTorch
-if [ -f "${PYTORCH_INSTALL_DIR}/lib/libtorch.so" ]; then
+if [ -f "${PYTORCH_LIB_DIR}/libtorch.so" ]; then
     log_success "PyTorch library found:"
-    ls -lh ${PYTORCH_INSTALL_DIR}/lib/libtorch.so
+    ls -lh ${PYTORCH_LIB_DIR}/libtorch.so
 else
-    log_error "PyTorch library not found at ${PYTORCH_INSTALL_DIR}/lib/libtorch.so"
+    log_error "PyTorch library not found at ${PYTORCH_LIB_DIR}/libtorch.so"
     exit 1
+fi
+
+# Update PyTorch environment file with pip installation path
+log_info "Updating PyTorch environment file..."
+if sudo -n true 2>/dev/null; then
+    sudo tee /etc/profile.d/pytorch.sh > /dev/null <<EOF
+export PYTORCH_INSTALL_DIR="${PYTORCH_INSTALL_DIR}"
+export SWIFT_TOOLCHAIN_DIR="${SWIFT_TOOLCHAIN_DIR}"
+export LD_LIBRARY_PATH="${PYTORCH_LIB_DIR}:\${LD_LIBRARY_PATH:-}"
+EOF
+    log_success "Environment file updated at /etc/profile.d/pytorch.sh"
+else
+    log_warning "Cannot update /etc/profile.d/pytorch.sh without sudo"
+    log_info "Please manually set these environment variables:"
+    echo "    export PYTORCH_INSTALL_DIR=\"${PYTORCH_INSTALL_DIR}\""
+    echo "    export SWIFT_TOOLCHAIN_DIR=\"${SWIFT_TOOLCHAIN_DIR}\""
+    echo "    export LD_LIBRARY_PATH=\"${PYTORCH_LIB_DIR}:\${LD_LIBRARY_PATH:-}\""
 fi
 
 # Print environment setup instructions
 log_section "Installation Complete"
 log_success "Swift and PyTorch successfully installed!"
+log_info ""
+log_info "PyTorch version: ${PYTORCH_VERSION} (pip-installed with MKL/MKLDNN optimizations)"
+log_info "PyTorch location: ${PYTORCH_INSTALL_DIR}"
 log_info ""
 log_info "To use Swift and PyTorch in new shell sessions, add to your ~/.bashrc:"
 log_info ""
@@ -837,7 +519,10 @@ echo "    echo 'source /etc/profile.d/pytorch.sh' >> ~/.bashrc"
 log_info ""
 log_info "To build TaylorTorch, run:"
 log_info ""
-echo "    cd /home/pedro/programming/swift/TaylorTorch"
-echo "    swift build"
+echo "    export SWIFT_TOOLCHAIN_DIR=\"${SWIFT_TOOLCHAIN_DIR}\""
+echo "    export PYTORCH_INSTALL_DIR=\"${PYTORCH_INSTALL_DIR}\""
+echo "    export LD_LIBRARY_PATH=\"${PYTORCH_LIB_DIR}:\$LD_LIBRARY_PATH\""
+echo "    cd <path-to-TaylorTorch>"
+echo "    swift build -c release"
 log_info ""
 log_success "Installation script completed successfully!"

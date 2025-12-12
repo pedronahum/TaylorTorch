@@ -169,7 +169,7 @@ public struct Chain<First: Layer, Second: Layer>: Layer where First.Output == Se
     return second(y)
   }
 
-  // Manual VJPs to avoid “curried self” solver path.
+  // Manual VJPs to avoid "curried self" solver path.
   @derivative(of: callAsFunction, wrt: (self, x))
   public func _vjpCallAsFunction(_ x: Input)
     -> (
@@ -177,15 +177,15 @@ public struct Chain<First: Layer, Second: Layer>: Layer where First.Output == Se
       pullback: (Output.TangentVector) -> (TangentVector, Input.TangentVector)
     )
   {
-    // Forward through first, then second.
-    let y1 = first(x)
+    // Capture both forward outputs AND pullbacks during forward pass.
+    // This avoids redundant forward passes inside the pullback closure.
+    let (y1, pbFirst) = first.appliedForBackpropagation(to: x)
     let (y, pbSecond) = second.appliedForBackpropagation(to: y1)
     return (
       y,
       { v in
-        // Backprop through second, then first.
+        // Backprop through second, then first (using captured pullbacks).
         let (dSecond, dY1) = pbSecond(v)
-        let (_, pbFirst) = first.appliedForBackpropagation(to: x)
         let (dFirst, dX) = pbFirst(dY1)
         return (TangentVector(first: dFirst, second: dSecond), dX)
       }

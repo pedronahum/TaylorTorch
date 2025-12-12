@@ -13,8 +13,7 @@ jobs:
 
     env:
       SWIFT_VERSION: swift-DEVELOPMENT-SNAPSHOT-2025-10-02-a
-      PYTORCH_VERSION: v2.8.0
-      PYTORCH_INSTALL_DIR: ${{ github.workspace }}/pytorch-install
+      PYTORCH_VERSION: "2.8.0"
       CC: clang
       CXX: clang++
 
@@ -50,15 +49,28 @@ jobs:
           wget \
           gnu-getopt
 
-    - name: Install Python packages for PyTorch
+    - name: Install Python packages and PyTorch via pip
       run: |
+        # Install PyTorch via pip (includes optimized MKL binaries)
         pip3 install --break-system-packages \
           numpy \
           pyyaml \
           typing_extensions \
           sympy \
           cffi \
-          cmake
+          torch==${PYTORCH_VERSION}
+
+        # Detect and export PyTorch installation path
+        PYTORCH_INSTALL_DIR=$(python3 -c "import torch; print(torch.__path__[0])")
+        echo "PYTORCH_INSTALL_DIR=${PYTORCH_INSTALL_DIR}" >> $GITHUB_ENV
+
+        echo "PyTorch installed at: ${PYTORCH_INSTALL_DIR}"
+
+        # Verify MKL support
+        python3 -c "import torch; config = torch.__config__.show(); print('MKL:', 'USE_MKL=ON' in config)"
+
+        # Verify library exists
+        ls -la "${PYTORCH_INSTALL_DIR}/lib/" | grep -E "(libtorch|libc10)" | head -5
 
     - name: Cache Swift toolchain
       id: cache-swift
@@ -213,74 +225,10 @@ jobs:
         export TOOLCHAINS="${TOOLCHAIN_IDENTIFIER}"
         swift --version
 
-    - name: Cache PyTorch build
-      id: cache-pytorch
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/pytorch-install
-        key: pytorch-${{ env.PYTORCH_VERSION }}-macos-clang-${{ hashFiles('.github/workflows/macos-ci.yml') }}
-
-    - name: Clone PyTorch
-      if: steps.cache-pytorch.outputs.cache-hit != 'true'
-      run: |
-        git clone --recursive https://github.com/pytorch/pytorch.git ${{ github.workspace }}/pytorch-src
-        cd ${{ github.workspace }}/pytorch-src
-        git checkout ${PYTORCH_VERSION}
-        git submodule sync
-        git submodule update --init --recursive
-
-    - name: Build PyTorch
-      if: steps.cache-pytorch.outputs.cache-hit != 'true'
-      run: |
-        # Verify SWIFT_TOOLCHAIN_DIR is set
-        if [ -z "$SWIFT_TOOLCHAIN_DIR" ]; then
-          echo "Error: SWIFT_TOOLCHAIN_DIR is not set"
-          exit 1
-        fi
-
-        echo "SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
-
-        # Use Swift toolchain's clang
-        SWIFT_CLANG="${SWIFT_TOOLCHAIN_DIR}/bin/clang"
-        SWIFT_CLANGXX="${SWIFT_TOOLCHAIN_DIR}/bin/clang++"
-
-        # Verify compilers exist
-        if [ ! -f "$SWIFT_CLANG" ]; then
-          echo "Error: clang not found at $SWIFT_CLANG"
-          exit 1
-        fi
-        if [ ! -f "$SWIFT_CLANGXX" ]; then
-          echo "Error: clang++ not found at $SWIFT_CLANGXX"
-          exit 1
-        fi
-
-        echo "Using clang: $SWIFT_CLANG"
-        echo "Using clang++: $SWIFT_CLANGXX"
-
-        cd ${{ github.workspace }}/pytorch-src
-        mkdir -p build
-        cd build
-
-        CC=$SWIFT_CLANG CXX=$SWIFT_CLANGXX cmake .. \
-          -DCMAKE_C_COMPILER=$SWIFT_CLANG \
-          -DCMAKE_CXX_COMPILER=$SWIFT_CLANGXX \
-          -DBUILD_SHARED_LIBS=ON \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/pytorch-install \
-          -DBUILD_PYTHON=OFF \
-          -DBUILD_TEST=OFF \
-          -DBUILD_CAFFE2=OFF \
-          -DUSE_DISTRIBUTED=OFF \
-          -DUSE_MPS=OFF \
-          -DUSE_CUDA=OFF \
-          -DPYTHON_EXECUTABLE=$(which python3) \
-          -GNinja
-        cmake --build . --target install -j$(sysctl -n hw.ncpu)
-
     - name: Set up environment
       run: |
-        echo "PYTORCH_INSTALL_DIR=${{ github.workspace }}/pytorch-install" >> $GITHUB_ENV
-        echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/pytorch-install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+        # Set DYLD_LIBRARY_PATH for PyTorch libraries
+        echo "DYLD_LIBRARY_PATH=${PYTORCH_INSTALL_DIR}/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 
     - name: Verify Swift and PyTorch setup
       run: |
@@ -320,6 +268,7 @@ jobs:
         echo "  SDKROOT: $SDKROOT"
         echo "  TOOLCHAINS: $TOOLCHAINS"
         echo "  SWIFT_TOOLCHAIN_DIR: $SWIFT_TOOLCHAIN_DIR"
+        echo "  PYTORCH_INSTALL_DIR: $PYTORCH_INSTALL_DIR"
 
         # Verify tgmath.h exists before building
         if [ ! -f "${SDKROOT}/usr/include/tgmath.h" ]; then
