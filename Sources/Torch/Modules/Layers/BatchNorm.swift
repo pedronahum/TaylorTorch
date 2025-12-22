@@ -645,18 +645,38 @@ public struct BatchNorm: Layer {
     // Decide phase based on thread-local context.
     switch Context.local.learningPhase {
     case .training:
-      let (y, meanVec, varVec) = forwardTraining(x)
+      // Use native batch norm forward
+      var rm: Tensor? = nil
+      var rv: Tensor? = nil
+      let weight: Tensor? = affine ? gamma : nil
+      let bias: Tensor? = affine ? beta : nil
 
-      let m = Tensor(self.momentum, dtype: meanVec.dtype ?? .float32, device: meanVec.device)
-      let oneMinusM = Tensor(
-        1 - self.momentum, dtype: meanVec.dtype ?? .float32, device: meanVec.device)
+      let (output, saveMean, saveInvstd) = x.nativeBatchNorm(
+        weight: weight,
+        bias: bias,
+        runningMean: &rm,
+        runningVar: &rv,
+        training: true,
+        momentum: 0.0,
+        epsilon: Double(epsilon)
+      )
 
-      // running := (1 - m) * running + m * batch
-      runningMean.value = runningMean.value.multiplying(oneMinusM).adding(meanVec.multiplying(m))
+      // Compute batch variance from saveInvstd for running stats update
+      // invstd = 1 / sqrt(var + eps), so var = 1/invstd^2 - eps
+      let dtype = x.dtype ?? .float32
+      let device = x.device
+      let eps = Tensor(Double(epsilon), dtype: dtype, device: device)
+      let one = Tensor(1.0, dtype: dtype, device: device)
+      let batchVar = one.dividing(saveInvstd.multiplying(saveInvstd)) - eps
+
+      // Update running statistics
+      let m = Tensor(self.momentum, dtype: dtype, device: device)
+      let oneMinusM = Tensor(1 - self.momentum, dtype: dtype, device: device)
+      runningMean.value = runningMean.value.multiplying(oneMinusM).adding(saveMean.multiplying(m))
       runningVariance.value = runningVariance.value.multiplying(oneMinusM).adding(
-        varVec.multiplying(m))
+        batchVar.multiplying(m))
 
-      return y
+      return output
 
     case .inference:
       return forwardInference(x)
@@ -666,20 +686,88 @@ public struct BatchNorm: Layer {
 
 // MARK: - Derivatives (avoid curried-self solver path)
 extension BatchNorm {
+  /// Internal function that performs native batch norm with manual VJP.
+  @differentiable(reverse, wrt: (gamma, beta, input))
+  public func _nativeBatchNormImpl(
+    gamma: Tensor, beta: Tensor, input: Tensor
+  ) -> Tensor {
+    var rm: Tensor? = nil
+    var rv: Tensor? = nil
+    let weight: Tensor? = affine ? gamma : nil
+    let bias: Tensor? = affine ? beta : nil
+
+    let (output, _, _) = input.nativeBatchNorm(
+      weight: weight,
+      bias: bias,
+      runningMean: &rm,
+      runningVar: &rv,
+      training: true,
+      momentum: 0.0,
+      epsilon: Double(epsilon)
+    )
+    return output
+  }
+
+  @derivative(of: _nativeBatchNormImpl, wrt: (gamma, beta, input))
+  public func _vjpNativeBatchNormImpl(
+    gamma: Tensor, beta: Tensor, input: Tensor
+  ) -> (
+    value: Tensor,
+    pullback: (Tensor) -> (Tensor, Tensor, Tensor)
+  ) {
+    var rm: Tensor? = nil
+    var rv: Tensor? = nil
+    let weight: Tensor? = affine ? gamma : nil
+    let bias: Tensor? = affine ? beta : nil
+
+    let (output, saveMean, saveInvstd) = input.nativeBatchNorm(
+      weight: weight,
+      bias: bias,
+      runningMean: &rm,
+      runningVar: &rv,
+      training: true,
+      momentum: 0.0,
+      epsilon: Double(epsilon)
+    )
+
+    let capturedInput = input
+    let capturedGamma = gamma
+    let capturedSaveMean = saveMean
+    let capturedSaveInvstd = saveInvstd
+    let capturedEpsilon = Double(self.epsilon)
+    let capturedAffine = self.affine
+
+    return (
+      output,
+      { upstream in
+        let capturedWeight: Tensor? = capturedAffine ? capturedGamma : nil
+
+        let (gradInput, gradWeight, gradBias) = capturedInput._nativeBatchNormBackward(
+          upstream: upstream,
+          weight: capturedWeight,
+          runningMean: nil,
+          runningVar: nil,
+          saveMean: capturedSaveMean,
+          saveInvstd: capturedSaveInvstd,
+          training: true,
+          epsilon: capturedEpsilon
+        )
+
+        return (gradWeight, gradBias, gradInput)
+      }
+    )
+  }
+
   @derivative(of: callAsFunction, wrt: (self, x))
   public func _vjpCallAsFunction(_ x: Tensor)
     -> (value: Tensor, pullback: (Tensor.TangentVector) -> (TangentVector, Tensor.TangentVector))
   {
+    // Use the same pattern as Conv2D - a free primal function with valueWithPullback
+    // Note: We only use native batch norm for training - inference rarely needs gradients
     func primal(_ gamma: Tensor, _ beta: Tensor, _ input: Tensor) -> Tensor {
-      var layer = self
-      layer.gamma = gamma
-      layer.beta = beta
-      switch Context.local.learningPhase {
-      case .training:
-        return layer.forwardTraining(input).output
-      case .inference:
-        return layer.forwardInference(input)
-      }
+      // Always use native batch norm - the _nativeBatchNormImpl function
+      // has a custom VJP that uses native_batch_norm_backward
+      return self._nativeBatchNormImpl(gamma: gamma, beta: beta, input: input)
     }
     let (y, pb) = valueWithPullback(at: self.gamma, self.beta, x, of: primal)
     return (

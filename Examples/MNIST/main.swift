@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Torch
 import _Differentiation
@@ -192,6 +193,12 @@ do {
   let stepsPerEpoch = (mnist.train.count + config.batchSize - 1) / config.batchSize
   let startTime = Date()
 
+  // Performance timing accumulators
+  var totalForwardTime: Double = 0
+  var totalBackwardTime: Double = 0
+  var totalOptimizerTime: Double = 0
+  var totalBatches = 0
+
   for epoch in 1...config.epochs {
     /// Shuffled loader that feeds training batches for the current epoch.
     let trainLoader = DataLoader(
@@ -215,17 +222,36 @@ do {
       if let limit = config.maxBatchesPerEpoch, step > limit { break }
       let (images, labels) = makeBatch(batch)
 
+      // Time the forward pass (includes loss computation)
+      let forwardStart = DispatchTime.now()
       let (lossTensor, pullback) = valueWithPullback(at: model) { current -> Tensor in
         let logits = current(images)
         return softmaxCrossEntropy(logits: logits, labels: labels)
       }
+      let forwardEnd = DispatchTime.now()
+
+      // Time the backward pass (gradient computation)
+      let backwardStart = DispatchTime.now()
       let grad = pullback(Tensor(1.0, dtype: .float32))
+      let backwardEnd = DispatchTime.now()
 
       let logits = model(images)
       let (correct, batchTotal) = batchAccuracy(logits: logits, labels: labels)
       let lossValue = lossTensor.toArray(as: Float.self)[0]
 
+      // Time the optimizer update
+      let optimizerStart = DispatchTime.now()
       optimizer.update(&model, along: grad)
+      let optimizerEnd = DispatchTime.now()
+
+      // Accumulate timing statistics
+      let forwardNanos = forwardEnd.uptimeNanoseconds - forwardStart.uptimeNanoseconds
+      let backwardNanos = backwardEnd.uptimeNanoseconds - backwardStart.uptimeNanoseconds
+      let optimizerNanos = optimizerEnd.uptimeNanoseconds - optimizerStart.uptimeNanoseconds
+      totalForwardTime += Double(forwardNanos) / 1_000_000_000
+      totalBackwardTime += Double(backwardNanos) / 1_000_000_000
+      totalOptimizerTime += Double(optimizerNanos) / 1_000_000_000
+      totalBatches += 1
 
       runningLoss += Double(lossValue) * Double(batchTotal)
       runningCorrect += correct
@@ -271,6 +297,18 @@ do {
 
   let totalElapsed = Date().timeIntervalSince(startTime)
   print(String(format: "Training finished in %.1fs", totalElapsed))
+
+  // Print performance timing summary
+  print("\n=== Performance Timing Summary ===")
+  print(String(format: "Total batches processed: %d", totalBatches))
+  print(String(format: "Total forward pass time:   %.3fs", totalForwardTime))
+  print(String(format: "Total backward pass time:  %.3fs", totalBackwardTime))
+  print(String(format: "Total optimizer time:      %.3fs", totalOptimizerTime))
+  print(String(format: "Avg forward pass time:     %.4fms", (totalForwardTime / Double(totalBatches)) * 1000))
+  print(String(format: "Avg backward pass time:    %.4fms", (totalBackwardTime / Double(totalBatches)) * 1000))
+  print(String(format: "Avg optimizer time:        %.4fms", (totalOptimizerTime / Double(totalBatches)) * 1000))
+  let totalComputeTime = totalForwardTime + totalBackwardTime + totalOptimizerTime
+  print(String(format: "Total compute time:        %.3fs (%.1f%% of wall time)", totalComputeTime, (totalComputeTime / totalElapsed) * 100))
 } catch {
   let message = "MNIST example failed: \(error)\n"
   if let data = message.data(using: .utf8) {
